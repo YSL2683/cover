@@ -340,17 +340,19 @@ def main(cfg: ResidualTD3DexmgConfig):
     )
 
     # Inject HybridRewardVecEnvWrapper
-    import sys
-    sys.path.append("/home/ysl2683/LaNE")
-    from e2c import MLPE2C
+    import os
+    from resfit.lane.e2c import MLPE2C
     from resfit.rl_finetuning.wrappers.hybrid_reward_wrapper import LatentDistanceModule, HybridRewardVecEnvWrapper
     
+    base_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    lane_weights_dir = os.path.join(base_path, "lane", "pretrained_e2c")
+
     e2c_front = MLPE2C(obs_shape=(384,), action_dim=7, z_dimension=16)
-    e2c_front.load_state_dict(torch.load("/home/ysl2683/LaNE/pretrained_e2c/e2c_front.pt", weights_only=True))
+    e2c_front.load_state_dict(torch.load(os.path.join(lane_weights_dir, "e2c_front.pt"), weights_only=True))
     e2c_wrist = MLPE2C(obs_shape=(384,), action_dim=7, z_dimension=32)
-    e2c_wrist.load_state_dict(torch.load("/home/ysl2683/LaNE/pretrained_e2c/e2c_wrist.pt", weights_only=True))
+    e2c_wrist.load_state_dict(torch.load(os.path.join(lane_weights_dir, "e2c_wrist.pt"), weights_only=True))
     
-    payload = torch.load("/home/ysl2683/LaNE/pretrained_e2c/demo_latents.pt", weights_only=False)
+    payload = torch.load(os.path.join(lane_weights_dir, "demo_latents.pt"), weights_only=False)
     latent_reward_module = LatentDistanceModule(
         e2c_front, e2c_wrist, payload["z_demo_front"], payload["z_demo_wrist"], payload["demo_lengths"], p_reward=1.0, device=device_str
     )
