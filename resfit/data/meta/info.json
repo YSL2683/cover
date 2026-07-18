@@ -1,0 +1,127 @@
+{
+    "codebase_version": "v2.1",
+    "robot_type": null,
+    "total_episodes": 0,
+    "total_frames": 0,
+    "total_tasks": 0,
+    "total_videos": 0,
+    "total_chunks": 0,
+    "chunks_size": 1000,
+    "fps": 10,
+    "splits": {},
+    "data_path": "data/chunk-{episode_chunk:03d}/episode_{episode_index:06d}.parquet",
+    "video_path": "videos/chunk-{episode_chunk:03d}/{video_key}/episode_{episode_index:06d}.mp4",
+    "features": {
+        "observation.images.frontview": {
+            "dtype": "video",
+            "shape": [
+                3,
+                128,
+                128
+            ],
+            "names": [
+                "channel",
+                "height",
+                "width"
+            ]
+        },
+        "observation.images.robot0_eye_in_hand": {
+            "dtype": "video",
+            "shape": [
+                3,
+                128,
+                128
+            ],
+            "names": [
+                "channel",
+                "height",
+                "width"
+            ]
+        },
+        "observation.state": {
+            "dtype": "float32",
+            "shape": [
+                9
+            ],
+            "names": [
+                "state_0",
+                "state_1",
+                "state_2",
+                "state_3",
+                "state_4",
+                "state_5",
+                "state_6",
+                "state_7",
+                "state_8"
+            ]
+        },
+        "action": {
+            "dtype": "float32",
+            "shape": [
+                7
+            ],
+            "names": [
+                "action_0",
+                "action_1",
+                "action_2",
+                "action_3",
+                "action_4",
+                "action_5",
+                "action_6"
+            ]
+        },
+        "next.reward": {
+            "dtype": "float32",
+            "shape": [
+                1
+            ],
+            "names": [
+                "reward"
+            ]
+        },
+        "next.done": {
+            "dtype": "bool",
+            "shape": [
+                1
+            ],
+            "names": [
+                "done"
+            ]
+        },
+        "timestamp": {
+            "dtype": "float32",
+            "shape": [
+                1
+            ],
+            "names": null
+        },
+        "frame_index": {
+            "dtype": "int64",
+            "shape": [
+                1
+            ],
+            "names": null
+        },
+        "episode_index": {
+            "dtype": "int64",
+            "shape": [
+                1
+            ],
+            "names": null
+        },
+        "index": {
+            "dtype": "int64",
+            "shape": [
+                1
+            ],
+            "names": null
+        },
+        "task_index": {
+            "dtype": "int64",
+            "shape": [
+                1
+            ],
+            "names": null
+        }
+    }
+}
