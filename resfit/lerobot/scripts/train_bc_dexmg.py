@@ -895,13 +895,11 @@ def main(cfg: argparse.Namespace):
     # ---------------------------------------------------------------------
     # Cleanup --------------------------------------------------------------
     # ---------------------------------------------------------------------
-    # Clean up entire run directory after successful completion (videos/logs are saved to wandb)
-    if run_cache_dir.exists():
-        logger.info(f"Cleaning up run directory: {run_cache_dir}")
-        shutil.rmtree(run_cache_dir)
-        logger.info("Run directory cleaned up successfully.")
-
-
+    # Do not clean up because we need the model for the next step!
+    # if run_cache_dir.exists():
+    #     logger.info(f"Cleaning up run directory: {run_cache_dir}")
+    #     shutil.rmtree(run_cache_dir)
+    #     logger.info("Run directory cleaned up successfully.")
 if __name__ == "__main__":
     """
     Example commands:

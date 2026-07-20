@@ -7,6 +7,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import imageio
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -232,17 +234,19 @@ def run_dexmg_evaluation(
 
                     episode_global_idx = done_episodes + 1  # 1-based
 
-                    for step_idx, fr in enumerate(episode_frames):
-                        annotated_fr = _annotate_frame(
-                            fr,
-                            env_idx=env_idx,
-                            episode_num=episode_global_idx,
-                            total_episodes=num_episodes,
-                            step_idx=step_idx + 1,
-                            is_success=is_success,
-                            q_value=episode_qs[step_idx],
-                        )
-                        all_frames.append(annotated_fr)
+                    # Only save the first episode video to avoid huge files
+                    if episode_global_idx == 1:
+                        for step_idx, fr in enumerate(episode_frames):
+                            annotated_fr = _annotate_frame(
+                                fr,
+                                env_idx=env_idx,
+                                episode_num=episode_global_idx,
+                                total_episodes=num_episodes,
+                                step_idx=step_idx + 1,
+                                is_success=is_success,
+                                q_value=episode_qs[step_idx],
+                            )
+                            all_frames.append(annotated_fr)
 
                     # Clear per-episode frame buffer
                     frame_buffer[env_idx].clear()

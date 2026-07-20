@@ -194,13 +194,7 @@ class RobosuiteGymWrapper:
             "renderer": "mujoco",
             "render_gpu_device_id": self.render_gpu_device_id,
         }
-
-        os.environ["MUJOCO_EGL_DEVICE_ID"] = str(self.render_gpu_device_id)
-
-        # Only log once per vectorized group (env_id==0) and at DEBUG level
-        if self.env_id == 0:
-            logger.debug(f"render_gpu_device_id: {self.render_gpu_device_id}")
-
+        
         # NOTE: This is a crucial change for the rollouts to work -- should it live here or elsewhere?
         if "composite_controller_specific_configs" in env_kwargs["controller_configs"]:
             env_kwargs["controller_configs"]["composite_controller_specific_configs"]["ik_input_ref_frame"] = "world"
@@ -209,7 +203,28 @@ class RobosuiteGymWrapper:
             env_kwargs["env_configuration"] = "opposed"
             env_kwargs["controller_configs"]["body_parts"]["right"]["input_ref_frame"] = "world"
 
+        os.environ["MUJOCO_EGL_DEVICE_ID"] = str(self.render_gpu_device_id)
+
+        # Only log once per vectorized group (env_id==0) and at DEBUG level
+        if self.env_id == 0:
+            logger.debug(f"render_gpu_device_id: {self.render_gpu_device_id}")
+
         self.env: ManipulationEnv = robosuite.make(**env_kwargs)
+        
+        # Inject custom sampler for the experiment AFTER env creation
+        if os.environ.get("EXPERIMENT_MODE") == "OOD":
+            try:
+                # Find the object sampler and override its ranges
+                samplers = self.env.placement_initializer.samplers
+                sampler = samplers.get("ObjectSampler")
+                if sampler is None and len(samplers) > 0:
+                    sampler = list(samplers.values())[0]
+                
+                if sampler is not None:
+                    sampler.x_range = [-0.05, 0.05]
+                    sampler.y_range = [0.1, 0.15]
+            except Exception as e:
+                logger.warning(f"Failed to set OOD placement sampler: {e}")
 
         logger.debug(
             f"Successfully created {env_name} environment via robosuite.make() "

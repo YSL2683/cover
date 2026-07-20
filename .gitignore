@@ -7,4 +7,6 @@ online_buffer_cache/
 bc_run_*
 deps/
 resfit/my_lerobot_data/
-resfit/lane/demo/
+lane/demo/
+lane/pretrained_e2c/
+old_experiments/

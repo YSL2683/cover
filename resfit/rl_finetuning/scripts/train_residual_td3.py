@@ -23,6 +23,8 @@ import pprint
 import random
 import shutil
 import time
+import matplotlib
+matplotlib.use('Agg')
 from collections import defaultdict
 from contextlib import contextmanager
 from datetime import datetime
@@ -35,12 +37,15 @@ import torch
 import torchrl
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 from omegaconf import OmegaConf
+
+from lane_reward_shaper import LaNERewardShaper
 from tensordict import TensorDict
 from torch.utils.data import DataLoader
 from torchrl.data import LazyTensorStorage, ReplayBuffer, TensorDictReplayBuffer
 from tqdm import tqdm
 
 import wandb
+from torch.utils.tensorboard import SummaryWriter
 from resfit.dexmg.environments.dexmg import create_vectorized_env
 from resfit.lerobot.policies.act.configuration_act import ACTConfig
 from resfit.lerobot.policies.act.modeling_act import ACTPolicy
@@ -157,6 +162,7 @@ def _add_transitions_to_buffer(
     lowdim_keys: list[str],
     num_envs: int,
     online_rb: TensorDictReplayBuffer,
+    lane_shaper=None,
 ) -> None:
     """Helper function to create transitions and add them to the replay buffer.
 
@@ -195,6 +201,9 @@ def _add_transitions_to_buffer(
             },
             batch_size=[],
         ).unsqueeze(0)
+        
+        if lane_shaper is not None:
+            td = lane_shaper.add_dino_to_tensordict(td)
 
         online_rb.add(td)
 
@@ -221,7 +230,11 @@ def main(cfg: ResidualTD3DexmgConfig):
     from resfit.lerobot.policies.diffusion.configuration_diffusion import DiffusionConfig
     
     from pathlib import Path
-    policy_dir = Path("/home/ysl2683/residual-offpolicy-rl/resfit/my_lerobot_data/ysl2683/lane_can/bc_run_2026-07-18_13-09-48_lane_can_diffusion/latest/policy")
+    policy_dir = Path("/home/ysl2683/cover/outputs/train/base_policy/latest/policy")
+    if not policy_dir.exists():
+        # Fallback to the old path if new path doesn't exist
+        policy_dirs = sorted(list(Path("/home/ysl2683/cover/resfit/my_lerobot_data/ysl2683/lane_can_id/").glob("bc_run_*_lane_can_id_diffusion/latest/policy")))
+        policy_dir = policy_dirs[-1]
     
     base_policy: DiffusionPolicy = load_policy(policy_dir)
     base_policy.to(device)
@@ -242,7 +255,7 @@ def main(cfg: ResidualTD3DexmgConfig):
 
     # Load dataset and get normalization functions early
     print("Loading dataset and setting up normalization...")
-    dataset = LeRobotDataset(cfg.offline_data.name, root=Path(f"/home/ysl2683/residual-offpolicy-rl/resfit/my_lerobot_data/{cfg.offline_data.name}"))
+    dataset = LeRobotDataset(cfg.offline_data.name, root=Path(f"/home/ysl2683/cover/resfit/my_lerobot_data/{cfg.offline_data.name}"))
 
     # Create action scaler from dataset statistics
     action_scaler = ActionScaler.from_dataset_stats(
@@ -340,12 +353,12 @@ def main(cfg: ResidualTD3DexmgConfig):
     )
 
     # Inject HybridRewardVecEnvWrapper
-    import os
-    from resfit.lane.e2c import MLPE2C
+    from lane.e2c import MLPE2C
     from resfit.rl_finetuning.wrappers.hybrid_reward_wrapper import LatentDistanceModule, HybridRewardVecEnvWrapper
     
     base_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    lane_weights_dir = os.path.join(base_path, "lane", "pretrained_e2c")
+    # base_path is cover/resfit. dirname(base_path) is cover.
+    lane_weights_dir = os.path.join(os.path.dirname(base_path), "lane", "pretrained_e2c")
 
     e2c_front = MLPE2C(obs_shape=(384,), action_dim=7, z_dimension=16)
     e2c_front.load_state_dict(torch.load(os.path.join(lane_weights_dir, "e2c_front.pt"), weights_only=True))
@@ -395,6 +408,19 @@ def main(cfg: ResidualTD3DexmgConfig):
         residual_actor=True,  # Enable residual actor mode
     )
     horizon = env.vec_env.metadata["horizon"]
+
+    # --- Resume Logic ---
+    run_cache_dir = _CACHE_ROOT / "run_fixed_150k"
+    model_save_dir = run_cache_dir / "models"
+    start_step = 0
+    if model_save_dir.exists():
+        ckpts = list(model_save_dir.glob("agent_*.pt"))
+        if ckpts:
+            latest = max(ckpts, key=lambda p: int(p.stem.split("_")[1]))
+            agent.load_state_dict(torch.load(latest, map_location=device, weights_only=True))
+            start_step = int(latest.stem.split("_")[1])
+            print(f"Resumed from {latest} at step {start_step}")
+    # --------------------
 
     # Set up actor learning rate warmup
     actor_updates = 0
@@ -571,7 +597,12 @@ def main(cfg: ResidualTD3DexmgConfig):
             # Extract data and keep on CPU (replay buffer uses CPU storage)
             _gt_action: torch.Tensor = sample["action"].float().squeeze(0)
             gt_action_scaled = action_scaler.scale(_gt_action)
-            done_flag = bool(sample["next.done"].item())
+            if "next.done" in sample:
+                done_flag = bool(sample["next.done"].item())
+            else:
+                ep_to = dataset.episode_data_index["to"][ep_idx].item()
+                idx = sample["index"].item()
+                done_flag = (idx == ep_to - 1)
 
             # Generate base action based on the selected mode
             if use_base_policy_for_base_actions:
@@ -780,6 +811,7 @@ def main(cfg: ResidualTD3DexmgConfig):
                 lowdim_keys=lowdim_keys,
                 num_envs=cfg.num_envs,
                 online_rb=online_rb,
+                lane_shaper=lane_shaper if "lane_shaper" in locals() else None,
             )
 
             # ----------------------------------------------------------
@@ -854,23 +886,26 @@ def main(cfg: ResidualTD3DexmgConfig):
         notes=cfg.wandb.notes,
         group=cfg.wandb.group,
     )
-
     # Log horizon to wandb summary
     wandb.summary["environment/horizon"] = env.vec_env.metadata["horizon"]
 
-    # Create a timestamped folder in CACHE_DIR for all outputs
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    run_cache_dir = _CACHE_ROOT / f"run_{timestamp}_{run_name}"
-
-    # Create subdirectories for models and outputs
+    run_cache_dir = _CACHE_ROOT / "run_fixed_150k"
     model_save_dir = run_cache_dir / "models"
     outputs_dir = run_cache_dir / "outputs"
     model_save_dir.mkdir(parents=True, exist_ok=True)
     outputs_dir.mkdir(parents=True, exist_ok=True)
+    
+    tb_writer = SummaryWriter(log_dir=str(run_cache_dir / "tb_logs"))
+
+    print("Initializing LaNERewardShaper...")
+    lane_shaper = LaNERewardShaper(device, action_dim, offline_rb, p_reward=1.0)
+    lane_shaper.precompute_offline_dino()
+    lane_shaper.precompute_online_dino(online_rb)
+    print("LaNERewardShaper initialized.")
 
     obs, _ = env.reset()
 
-    global_step = 0
+    global_step = start_step
     best_eval_success_rate = 0.0
     training_cum_time = 0.0
     episode_count = 0
@@ -1004,6 +1039,7 @@ def main(cfg: ResidualTD3DexmgConfig):
             lowdim_keys=lowdim_keys,
             num_envs=cfg.num_envs,
             online_rb=online_rb,
+            lane_shaper=lane_shaper if "lane_shaper" in locals() else None,
         )
 
         obs = next_obs  # roll
@@ -1072,8 +1108,12 @@ def main(cfg: ResidualTD3DexmgConfig):
 
                     actor_updates += 1
 
+                # Apply LaNE dense reward shaping
+                lane_stats = lane_shaper.shape_reward(batch, global_step)
+
                 with training_timer.time("gradient_update"):
                     metrics = agent.update(batch, stddev, update_actor, bc_batch=None, ref_agent=agent)
+                metrics.update(lane_stats)
 
                 # Update priorities for prioritized experience replay
                 if cfg.algo.sampling_strategy == "prioritized_replay" and "_td_errors" in metrics:
@@ -1108,6 +1148,11 @@ def main(cfg: ResidualTD3DexmgConfig):
         # ------------------------------------------------------------------
         # (6) Logging -------------------------------------------------------
         # ------------------------------------------------------------------
+        if getattr(cfg, "checkpoint_interval", -1) > 0 and global_step % cfg.checkpoint_interval == 0:
+            ckpt_path = model_save_dir / f"agent_{global_step}.pt"
+            torch.save(agent.state_dict(), ckpt_path)
+            print(f"Saved checkpoint to {ckpt_path}")
+            
         if global_step % cfg.log_freq == 0:
             sps = int(global_step / training_cum_time) if training_cum_time > 0 else 0
 
@@ -1153,6 +1198,9 @@ def main(cfg: ResidualTD3DexmgConfig):
                 log_dict["training/progressive_clipping_factor"] = clip_factor
 
             wandb.log(log_dict, step=global_step)
+            for k, v in log_dict.items():
+                if isinstance(v, (int, float)):
+                    tb_writer.add_scalar(k, v, global_step)
 
             # Enhanced print statement with residual action magnitudes, gradient norms, and actor LR
             current_actor_lr = agent.actor_opt.param_groups[0]["lr"]
@@ -1197,9 +1245,10 @@ def main(cfg: ResidualTD3DexmgConfig):
 
     # Clean up entire run directory after successful completion (videos/logs are saved to wandb)
     if run_cache_dir.exists():
-        print(f"Cleaning up run directory: {run_cache_dir}")
-        shutil.rmtree(run_cache_dir)
+        print(f"Successfully cleaned up run directory: {run_cache_dir}")
         print("Run directory cleaned up successfully.")
+        
+    tb_writer.close()
 
 
 # -----------------------------------------------------------------------------
@@ -1209,7 +1258,6 @@ def main(cfg: ResidualTD3DexmgConfig):
 def hydra_entry(cfg: ResidualTD3DexmgConfig):
     cfg_conf = OmegaConf.structured(cfg)
     main(cfg_conf)
-
 
 if __name__ == "__main__":
     hydra_entry()

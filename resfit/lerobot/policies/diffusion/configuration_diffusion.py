@@ -128,7 +128,7 @@ class DiffusionConfig(PreTrainedConfig):
     # Architecture / modeling.
     # Vision backbone.
     vision_backbone: str = "resnet18"
-    crop_shape: tuple[int, int] | None = (240, 240)
+    crop_shape: tuple[int, int] | None = (128, 128)
     crop_is_random: bool = True
     pretrained_backbone_weights: str | None = None
     use_group_norm: bool = True
