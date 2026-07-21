@@ -10,8 +10,6 @@ Paper: https://arxiv.org/abs/2509.19301
 
 ### Environment Setup
 
-We provide a `requirements_current.txt` file that captures the exact working dependencies (including `robosuite`, `torchrl`, and `dinov2` prerequisites) to easily replicate the environment on another PC.
-
 #### 1. Create and Activate Conda Environment
 
 Create a new conda environment with Python 3.10 and activate it:
@@ -30,12 +28,20 @@ sudo apt-get update
 sudo apt-get install -y build-essential libosmesa6-dev libgl1-mesa-glx libglfw3 patchelf
 ```
 
-#### 3. Install Python Dependencies
+#### 3. Run Setup Scripts
 
-Install all pip packages directly from the frozen requirements file:
+Use the provided shell script to automatically clone and install the core dependencies (`lerobot`, `dexmg`, `robosuite`) sequentially:
 
 ```bash
-pip install -r requirements_current.txt
+./resfit/rl_finetuning/setup_rlpd_robosuite.sh
+```
+
+Install additional required packages for RL finetuning:
+
+```bash
+pip install wandb
+pip install draccus==0.10.0 torchrl==0.9.2
+pip install hydra-core serial deepdiff matplotlib
 ```
 
 #### 4. Fix CUDA Support (if needed)
