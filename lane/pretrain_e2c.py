@@ -72,8 +72,7 @@ def train_e2c(obs_f, obs_w, next_obs_f, next_obs_w, actions, device="cuda", n_it
     action_dim = actions.shape[1]
     
     e2c_front = MLPE2C(obs_shape=(384,), action_dim=action_dim, z_dimension=16).to(device)
-    # Wrist uses higher dim as per design review
-    e2c_wrist = MLPE2C(obs_shape=(384,), action_dim=action_dim, z_dimension=32).to(device)
+    e2c_wrist = MLPE2C(obs_shape=(384,), action_dim=action_dim, z_dimension=16).to(device)
     
     opt_f = torch.optim.Adam(e2c_front.parameters(), lr=1e-4)
     opt_w = torch.optim.Adam(e2c_wrist.parameters(), lr=1e-4)
@@ -137,7 +136,7 @@ def precompute_demo_latents(e2c_front, e2c_wrist, obs_f, obs_w, demo_starts, dem
 
 if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    demo_dir = "/home/ysl2683/cover/lane/demo/robosuite_pick_place_can/20/"
+    demo_dir = "/home/ysl2683/cover/lane/demo/robosuite_lift/20/"
     
     print("Loading demos...")
     obs, next_obs, actions, starts, ends = load_demos(demo_dir)
@@ -155,7 +154,7 @@ if __name__ == "__main__":
     z_df, z_dw, t_lens = precompute_demo_latents(e2c_f, e2c_w, obs_f, obs_w, starts, ends, device)
     
     print("Saving artifacts...")
-    save_dir = "/home/ysl2683/cover/lane/pretrained_e2c"
+    save_dir = "/home/ysl2683/cover/lane/pretrained_e2c/lift"
     os.makedirs(save_dir, exist_ok=True)
     torch.save(e2c_f.state_dict(), os.path.join(save_dir, "e2c_front.pt"))
     torch.save(e2c_w.state_dict(), os.path.join(save_dir, "e2c_wrist.pt"))

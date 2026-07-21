@@ -35,16 +35,14 @@ env = suite.make(
     horizon=120,
     single_object_mode=2,
     object_type="can",
+    has_renderer=True,
+    has_offscreen_renderer=True,
+    render_camera="frontview",
     # bin1_pos=(0.1, -0.27, 0.8),
     # bin2_pos=(0.1, 0.27, 0.8),
 )
 
-# Fix the sampler for the object to be within [-0.05, 0.05]
-if hasattr(env, "placement_initializer") and env.placement_initializer is not None:
-    for k, sampler in env.placement_initializer.samplers.items():
-        if k == "CollisionObjectSampler" or k == "ObjectSampler":
-            sampler.x_range = [-0.05, 0.05]
-            sampler.y_range = [-0.05, 0.05]
+# (Placement initializer modification removed because it is reset by the environment internally)
 
 obs_list = []
 next_obs_list = []
@@ -59,14 +57,35 @@ stage_counter = 0
 demo_starts = []
 demo_ends = []
 
-for i in range(NUM_DEMOS):
+successful_demos = 0
+while successful_demos < NUM_DEMOS:
     obs = env.reset()
-    demo_starts.append(len(obs_list))
+    
+    # Manually place the Can exactly within 3cm x 3cm area
+    new_x = env.bin1_pos[0] + np.random.uniform(-0.015, 0.015)
+    new_y = env.bin1_pos[1] + np.random.uniform(-0.015, 0.015)
+    
+    for obj in env.objects:
+        if obj.name == "Can":
+            qpos = env.sim.data.get_joint_qpos(obj.joints[0])
+            qpos[0] = new_x
+            qpos[1] = new_y
+            env.sim.data.set_joint_qpos(obj.joints[0], qpos)
+            break
+            
+    env.sim.forward()
+    obs = env._get_observations(force_update=True)
+    
+    ep_obs, ep_next_obs, ep_actions, ep_rewards, ep_not_dones, ep_states = [], [], [], [], [], []
+    demo_frames = []
+    
     img_obs = np.concatenate(
         [obs["frontview_image"][::-1], obs["robot0_eye_in_hand_image"][::-1]], axis=2
     ).transpose((2, 0, 1))
     
-    demo_frames = []
+    stage = 0
+    stage_counter = 0
+    success = False
     
     while True:
         demo_frames.append(obs["frontview_image"][::-1])
@@ -142,14 +161,14 @@ for i in range(NUM_DEMOS):
                 action[2] = 0
 
         next_obs, r, d, info = env.step(action)
+        env.render()
         
-        # Collect state
         state = np.concatenate([
             next_obs["robot0_eef_pos"],
             next_obs["robot0_eef_quat"],
             next_obs["robot0_gripper_qpos"]
         ])
-        state_list.append(state)
+        ep_states.append(state)
         
         next_img_obs = np.concatenate(
             [
@@ -158,25 +177,43 @@ for i in range(NUM_DEMOS):
             ],
             axis=2,
         ).transpose((2, 0, 1))
-        obs_list.append(img_obs)
-        next_obs_list.append(next_img_obs)
-        action_list.append(action)
+        
+        ep_obs.append(img_obs)
+        ep_next_obs.append(next_img_obs)
+        ep_actions.append(action)
+        
         r = -1 if r <= 0 else 100
         if r == 100:
             d = True
-        reward_list.append([r])
-        not_done_list.append([not d])
+            success = True
+            
+        ep_rewards.append([r])
+        ep_not_dones.append([not d])
+        
         img_obs = next_img_obs
+        obs = next_obs
 
         if d:
-            demo_ends.append(len(obs_list))
-            stage = 0
-            stage_counter = 0
-            # Save video for the first 5 demos to check
-            if i < 5:
-                if not os.path.isdir(target_folder):
-                    os.makedirs(target_folder)
-                imageio.mimsave(target_folder + f"/demo_{i}.mp4", demo_frames, fps=10)
+            if success:
+                demo_starts.append(len(obs_list))
+                obs_list.extend(ep_obs)
+                next_obs_list.extend(ep_next_obs)
+                action_list.extend(ep_actions)
+                reward_list.extend(ep_rewards)
+                not_done_list.extend(ep_not_dones)
+                state_list.extend(ep_states)
+                demo_ends.append(len(obs_list))
+                
+                if successful_demos < 5:
+                    if not os.path.isdir(target_folder):
+                        os.makedirs(target_folder)
+                    import imageio
+                    imageio.mimsave(target_folder + f"/demo_{successful_demos}.mp4", demo_frames, fps=10)
+                    
+                successful_demos += 1
+                print(f"Collected successful demo {successful_demos}/{NUM_DEMOS}")
+            else:
+                print("Episode failed! Retrying...")
             break
 
 payload = [

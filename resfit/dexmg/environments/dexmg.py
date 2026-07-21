@@ -186,7 +186,7 @@ class RobosuiteGymWrapper:
             "has_offscreen_renderer": True,
             "ignore_done": False,
             "use_camera_obs": True,
-            "control_freq": 20,
+            "control_freq": 10,
             "camera_names": camera_names,
             "camera_heights": self.camera_size,
             "camera_widths": self.camera_size,
@@ -212,17 +212,18 @@ class RobosuiteGymWrapper:
         self.env: ManipulationEnv = robosuite.make(**env_kwargs)
         
         # Inject custom sampler for the experiment AFTER env creation
-        if os.environ.get("EXPERIMENT_MODE") == "OOD":
+        if os.environ.get("EXPERIMENT_MODE") == "OOD_pos":
             try:
-                # Find the object sampler and override its ranges
-                samplers = self.env.placement_initializer.samplers
-                sampler = samplers.get("ObjectSampler")
-                if sampler is None and len(samplers) > 0:
-                    sampler = list(samplers.values())[0]
+                sampler = self.env.placement_initializer
+                if hasattr(sampler, "samplers"):
+                    samplers = sampler.samplers
+                    sampler = samplers.get("ObjectSampler")
+                    if sampler is None and len(samplers) > 0:
+                        sampler = list(samplers.values())[0]
                 
                 if sampler is not None:
-                    sampler.x_range = [-0.05, 0.05]
-                    sampler.y_range = [0.1, 0.15]
+                    sampler.x_range = [0.025, 0.075]
+                    sampler.y_range = [-0.025, 0.025]
             except Exception as e:
                 logger.warning(f"Failed to set OOD placement sampler: {e}")
 

@@ -103,7 +103,12 @@ class ResidualTD3DexmgConfig(RLPDDexmgConfig):
     # ------------------------------------------------------------------
     # Offline dataset
     # ------------------------------------------------------------------
-    offline_data: OfflineDataConfig | None = field(default_factory=OfflineDataConfig)
+    offline_data: OfflineDataConfig | None = field(
+        default_factory=lambda: OfflineDataConfig(
+            name="ysl2683/lane_lift_id_20_aligned",
+            num_episodes=20,
+        )
+    )
 
     # ------------------------------------------------------------------
     # Base policy
@@ -118,6 +123,7 @@ class ResidualTD3DexmgConfig(RLPDDexmgConfig):
     # ------------------------------------------------------------------
     # Logging / checkpointing
     # ------------------------------------------------------------------
+    checkpoint_interval: int = 10000
     eval_interval_every_steps: int = 10_000
 
     # Whether to run an evaluation pass before training begins (at step 0)
@@ -237,22 +243,21 @@ class ResidualTD3CoffeeConfig(ResidualTD3BoxCleanConfig):
 
 @dataclass
 class ResidualTD3TwoArmCanSortConfig(ResidualTD3BoxCleanConfig):
-    task: str = "TwoArmCanSortRandom"
+    task: str = "Lift"
 
     rl_camera: list[str] = field(
         default_factory=lambda: [
             "observation.images.frontview",
-            "observation.images.robot0_eye_in_left_hand",
-            "observation.images.robot0_eye_in_right_hand",
+            "observation.images.robot0_eye_in_hand",
         ]
     )
 
-    wandb: WandBConfig = field(default_factory=lambda: WandBConfig(project="dexmg-cansort-residual-td3"))
+    wandb: WandBConfig = field(default_factory=lambda: WandBConfig(project="lane-lift-residual-td3"))
 
     offline_data: OfflineDataConfig = field(
         default_factory=lambda: OfflineDataConfig(
-            name="ankile/dexmg-two-arm-can-sort-random",
-            num_episodes=1_000,
+            name="ysl2683/lane_lift_id_20_aligned",
+            num_episodes=20,
         )
     )
     base_policy: BasePolicyConfig = field(

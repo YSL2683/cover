@@ -76,8 +76,21 @@ class LaNERewardShaper:
             dino_obs_list.append(dino_obs)
             dino_next_list.append(dino_next)
             
-        self.offline_rb._storage._storage["dino"] = torch.cat(dino_obs_list, dim=0).to(self.offline_rb._storage._storage.device)
-        self.offline_rb._storage._storage["next", "dino"] = torch.cat(dino_next_list, dim=0).to(self.offline_rb._storage._storage.device)
+        dino_obs_tensor = torch.cat(dino_obs_list, dim=0)
+        dino_next_tensor = torch.cat(dino_next_list, dim=0)
+        
+        storage_size = self.offline_rb._storage._storage.shape[0]
+        
+        full_dino_obs = torch.zeros((storage_size, dino_obs_tensor.shape[-1]), device=self.offline_rb._storage._storage.device)
+        full_dino_obs[:dino_obs_tensor.shape[0]] = dino_obs_tensor.to(full_dino_obs.device)
+        
+        full_dino_next = torch.zeros((storage_size, dino_next_tensor.shape[-1]), device=self.offline_rb._storage._storage.device)
+        full_dino_next[:dino_next_tensor.shape[0]] = dino_next_tensor.to(full_dino_next.device)
+        
+        self.offline_rb._storage._storage.unlock_()
+        self.offline_rb._storage._storage.set("dino", full_dino_obs)
+        self.offline_rb._storage._storage.set(("next", "dino"), full_dino_next)
+        self.offline_rb._storage._storage.lock_()
         print("Precomputing done.")
 
     def precompute_online_dino(self, online_rb):
@@ -109,8 +122,10 @@ class LaNERewardShaper:
             full_dino_obs[:len(online_rb)] = cat_dino_obs
             full_dino_next[:len(online_rb)] = cat_dino_next
             
-        online_rb._storage._storage["dino"] = full_dino_obs
-        online_rb._storage._storage["next", "dino"] = full_dino_next
+        online_rb._storage._storage.unlock_()
+        online_rb._storage._storage.set("dino", full_dino_obs)
+        online_rb._storage._storage.set(("next", "dino"), full_dino_next)
+        online_rb._storage._storage.lock_()
         print("Online precomputing done.")
 
     def add_dino_to_tensordict(self, td):

@@ -4,8 +4,8 @@ import torch.nn.functional
 import numpy as np
 from torch import nn
 from collections import OrderedDict
-from resfit.lane.utils import create_mlp
-from resfit.lane.encoder import tie_weights
+from lane.utils import create_mlp
+from lane.encoder import tie_weights
 
 
 class E2CDecoder(nn.Module):

@@ -177,10 +177,13 @@ class HybridRewardVecEnvWrapper:
         
         r_dense, is_state_11 = self.latent_reward_module.compute_dense_reward(front_img, wrist_img)
         
+        # Map base reward: 1.0 (success) -> 100.0, 0.0 (step) -> -1.0
+        base_reward = torch.where(reward > 0.5, torch.tensor(100.0, device=reward.device), torch.tensor(-1.0, device=reward.device))
+        
         # Add dense reward to environment reward
         # reward is typically [B, 1] or [B]
         r_dense = r_dense.view_as(reward)
-        reward = reward + r_dense
+        reward = base_reward + r_dense
         
         # Inject state flag into observation for L2 penalty later
         next_obs["observation.is_state_11"] = is_state_11.unsqueeze(-1)

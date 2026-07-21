@@ -10,49 +10,43 @@ Paper: https://arxiv.org/abs/2509.19301
 
 ### Environment Setup
 
+We provide a `requirements_current.txt` file that captures the exact working dependencies (including `robosuite`, `torchrl`, and `dinov2` prerequisites) to easily replicate the environment on another PC.
+
 #### 1. Create and Activate Conda Environment
 
-Create a new conda environment with Python 3.10:
+Create a new conda environment with Python 3.10 and activate it:
 
 ```bash
-conda create -n residual python=3.10 -y
-conda activate residual
+conda create -n cover python=3.10 -y
+conda activate cover
 ```
 
-#### 2. Install Core Dependencies
+#### 2. Install System Dependencies
 
-Install the RL finetuning dependencies:
+Some packages require basic build tools and OpenGL libraries (for Robosuite headless rendering). Ensure they are installed on your Ubuntu machine:
 
 ```bash
-./resfit/rl_finetuning/setup_rlpd_robosuite.sh
+sudo apt-get update
+sudo apt-get install -y build-essential libosmesa6-dev libgl1-mesa-glx libglfw3 patchelf
 ```
 
-Install additional required packages:
+#### 3. Install Python Dependencies
+
+Install all pip packages directly from the frozen requirements file:
 
 ```bash
-pip install wandb
-pip install draccus==0.10.0 torchrl==0.9.2
-pip install hydra-core serial deepdiff matplotlib
-```
-
-#### 3. Logging into Hugging Face and wandb
-
-Login to Hugging Face to access dataset and wandb for policy weights saving and loading:
-
-```bash
-hf auth login
-wandb login
+pip install -r requirements_current.txt
 ```
 
 #### 4. Fix CUDA Support (if needed)
 
-If you encounter CUDA-related issues, clean out CPU-only installs and reinstall CUDA-enabled packages:
+If you encounter CUDA-related issues (e.g. `torch.cuda.is_available()` returns False) because of CPU-only wheels, clean them out and reinstall CUDA-enabled packages:
 
 ```bash
 # Remove CPU-only torchcodec
 pip uninstall -y torchcodec
 
-# Install CUDA-enabled wheel for CUDA 12.8
+# Install CUDA-enabled wheel (Example for CUDA 12.8)
 pip install --no-cache-dir torchcodec --index-url https://download.pytorch.org/whl/cu128
 ```
 
@@ -60,6 +54,15 @@ Verify CUDA is enabled:
 
 ```bash
 python -c "import torch; print(torch.cuda.is_available())"
+```
+
+#### 5. Logging into Hugging Face and wandb
+
+Login to Hugging Face to access dataset and wandb for policy weights saving and loading:
+
+```bash
+hf auth login
+wandb login
 ```
 
 ## Launch training

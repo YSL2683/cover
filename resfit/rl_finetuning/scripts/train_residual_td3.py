@@ -41,7 +41,7 @@ from omegaconf import OmegaConf
 from lane_reward_shaper import LaNERewardShaper
 from tensordict import TensorDict
 from torch.utils.data import DataLoader
-from torchrl.data import LazyTensorStorage, ReplayBuffer, TensorDictReplayBuffer
+from torchrl.data import LazyMemmapStorage, ReplayBuffer, TensorDictReplayBuffer
 from tqdm import tqdm
 
 import wandb
@@ -144,6 +144,7 @@ ONLINE_CACHE_DIR = _CACHE_ROOT / "online_buffer_cache"
 # Repository-local imports ------------------------------------------------------
 # -----------------------------------------------------------------------------
 os.environ["MUJOCO_GL"] = "egl"
+os.environ["EXPERIMENT_MODE"] = "OOD_pos"
 
 if "MUJOCO_EGL_DEVICE_ID" in os.environ:
     del os.environ["MUJOCO_EGL_DEVICE_ID"]
@@ -230,11 +231,9 @@ def main(cfg: ResidualTD3DexmgConfig):
     from resfit.lerobot.policies.diffusion.configuration_diffusion import DiffusionConfig
     
     from pathlib import Path
-    policy_dir = Path("/home/ysl2683/cover/outputs/train/base_policy/latest/policy")
+    policy_dir = Path("/home/ysl2683/cover/resfit/my_lerobot_data/ysl2683/lane_lift_id_20_aligned/bc_run_2026-07-20_20-31-18_lane_lift_id_20_aligned_diffusion/latest/policy")
     if not policy_dir.exists():
-        # Fallback to the old path if new path doesn't exist
-        policy_dirs = sorted(list(Path("/home/ysl2683/cover/resfit/my_lerobot_data/ysl2683/lane_can_id/").glob("bc_run_*_lane_can_id_diffusion/latest/policy")))
-        policy_dir = policy_dirs[-1]
+        raise FileNotFoundError(f"Could not find the base policy checkpoint at {policy_dir}!")
     
     base_policy: DiffusionPolicy = load_policy(policy_dir)
     base_policy.to(device)
@@ -358,11 +357,11 @@ def main(cfg: ResidualTD3DexmgConfig):
     
     base_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     # base_path is cover/resfit. dirname(base_path) is cover.
-    lane_weights_dir = os.path.join(os.path.dirname(base_path), "lane", "pretrained_e2c")
+    lane_weights_dir = os.path.join(os.path.dirname(base_path), "lane", "pretrained_e2c", "lift")
 
     e2c_front = MLPE2C(obs_shape=(384,), action_dim=7, z_dimension=16)
     e2c_front.load_state_dict(torch.load(os.path.join(lane_weights_dir, "e2c_front.pt"), weights_only=True))
-    e2c_wrist = MLPE2C(obs_shape=(384,), action_dim=7, z_dimension=32)
+    e2c_wrist = MLPE2C(obs_shape=(384,), action_dim=7, z_dimension=16)
     e2c_wrist.load_state_dict(torch.load(os.path.join(lane_weights_dir, "e2c_wrist.pt"), weights_only=True))
     
     payload = torch.load(os.path.join(lane_weights_dir, "demo_latents.pt"), weights_only=False)
@@ -448,7 +447,7 @@ def main(cfg: ResidualTD3DexmgConfig):
 
     # Use TensorDictPrioritizedReplayBuffer with optimized prefetching
     online_rb = TensorDictReplayBuffer(
-        storage=LazyTensorStorage(max_size=cfg.algo.buffer_size, device="cpu"),
+        storage=LazyMemmapStorage(max_size=cfg.algo.buffer_size, scratch_dir=Path("/home/ysl2683/cover/scratch/online")),
         transform=MultiStepTransform(n_steps=cfg.algo.n_step, gamma=cfg.algo.gamma),
         pin_memory=True,
         prefetch=cfg.algo.prefetch_batches,  # Add prefetching
@@ -540,7 +539,7 @@ def main(cfg: ResidualTD3DexmgConfig):
         print("Online-only mode: creating minimal offline buffer (unused)")
 
     offline_rb = TensorDictReplayBuffer(
-        storage=LazyTensorStorage(max_size=max_offline_transitions, device="cpu"),
+        storage=LazyMemmapStorage(max_size=max_offline_transitions, scratch_dir=Path("/home/ysl2683/cover/scratch/offline")),
         transform=MultiStepTransform(n_steps=cfg.algo.n_step, gamma=cfg.algo.gamma),
         pin_memory=True,
         prefetch=cfg.algo.prefetch_batches,  # Add prefetching
@@ -648,7 +647,7 @@ def main(cfg: ResidualTD3DexmgConfig):
                             {
                                 "obs": TensorDict(curr_obs, batch_size=[]),
                                 "done": torch.tensor(done_flag, dtype=torch.bool),
-                                "reward": torch.tensor(float(done_flag), dtype=torch.float32),
+                                "reward": torch.tensor(100.0 if done_flag else -1.0, dtype=torch.float32),
                             },
                             batch_size=[],
                         ),
@@ -895,7 +894,9 @@ def main(cfg: ResidualTD3DexmgConfig):
     model_save_dir.mkdir(parents=True, exist_ok=True)
     outputs_dir.mkdir(parents=True, exist_ok=True)
     
-    tb_writer = SummaryWriter(log_dir=str(run_cache_dir / "tb_logs"))
+    from datetime import datetime
+    tb_run_name = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    tb_writer = SummaryWriter(log_dir=str(run_cache_dir / "tb_logs" / tb_run_name))
 
     print("Initializing LaNERewardShaper...")
     lane_shaper = LaNERewardShaper(device, action_dim, offline_rb, p_reward=1.0)
@@ -1066,6 +1067,11 @@ def main(cfg: ResidualTD3DexmgConfig):
                 if current_success_rate > best_eval_success_rate:
                     print(f"🎉 New best success rate: {current_success_rate:.4f} (prev: {best_eval_success_rate:.4f})")
                     best_eval_success_rate = current_success_rate
+                
+                # Log eval metrics to Tensorboard
+                for k, v in eval_metrics.items():
+                    if isinstance(v, (int, float)):
+                        tb_writer.add_scalar(k, v, global_step)
 
         global_step += cfg.num_envs
 

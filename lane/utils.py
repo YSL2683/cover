@@ -6,7 +6,7 @@ from collections import deque
 import random
 from torch.utils.data import Dataset
 from torch import nn
-from resfit.lane.data_augs import random_crop
+from lane.data_augs import random_crop
 
 
 class eval_mode(object):

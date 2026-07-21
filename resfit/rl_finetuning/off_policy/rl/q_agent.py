@@ -336,7 +336,7 @@ class QAgent(nn.Module):
             target_q = (reward + (discount * target_q_min)).detach()
 
         if self.cfg.clip_q_target_to_reward_range:
-            target_q = torch.clamp(target_q, min=0, max=1)  # Sparse rewards are in {0, 1}
+            target_q = torch.clamp(target_q, min=-100.0, max=100.0)  # Sparse rewards are in {-1, 100}
 
         td_errors = None
 
