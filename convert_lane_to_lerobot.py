@@ -5,9 +5,10 @@ from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 from PIL import Image
 
 def main():
-    pt_path = "/home/ysl2683/cover/lane/demo/robosuite_pick_place_can/20/0_2400.pt"
-    starts_path = "/home/ysl2683/cover/lane/demo/robosuite_pick_place_can/20/demo_starts.npy"
-    ends_path = "/home/ysl2683/cover/lane/demo/robosuite_pick_place_can/20/demo_ends.npy"
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+    pt_path = os.path.join(SCRIPT_DIR, "lane/demo/robosuite_pick_place_can/20/0_2400.pt")
+    starts_path = os.path.join(SCRIPT_DIR, "lane/demo/robosuite_pick_place_can/20/demo_starts.npy")
+    ends_path = os.path.join(SCRIPT_DIR, "lane/demo/robosuite_pick_place_can/20/demo_ends.npy")
     
     payload = torch.load(pt_path, weights_only=False)
     obs_list = payload[0]      # [N, 6, 128, 128]
@@ -30,7 +31,7 @@ def main():
         repo_id="ysl2683/lane_can_id",
         fps=10,
         features=features,
-        root="/home/ysl2683/cover/resfit/my_lerobot_data/ysl2683/lane_can_id"
+        root=os.path.join(SCRIPT_DIR, "resfit/my_lerobot_data/ysl2683/lane_can_id")
     )
     
     # Process episodes

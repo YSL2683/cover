@@ -5,14 +5,15 @@ from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 from PIL import Image
 
 def main():
-    pt_path = "/home/ysl2683/cover/lane/demo/robosuite_lift/20/0_400.pt" # 0_400 might be different but glob catches it
-    starts_path = "/home/ysl2683/cover/lane/demo/robosuite_lift/20/demo_starts.npy"
-    ends_path = "/home/ysl2683/cover/lane/demo/robosuite_lift/20/demo_ends.npy"
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+    pt_path = os.path.join(SCRIPT_DIR, "lane/demo/robosuite_lift/20/0_400.pt") # 0_400 might be different but glob catches it
+    starts_path = os.path.join(SCRIPT_DIR, "lane/demo/robosuite_lift/20/demo_starts.npy")
+    ends_path = os.path.join(SCRIPT_DIR, "lane/demo/robosuite_lift/20/demo_ends.npy")
     
     # Try alternate path if it doesn't exist
     if not os.path.exists(pt_path):
         import glob
-        files = glob.glob("/home/ysl2683/cover/lane/demo/robosuite_lift/20/*.pt")
+        files = glob.glob(os.path.join(SCRIPT_DIR, "lane/demo/robosuite_lift/20/*.pt"))
         if files:
             pt_path = files[0]
             
@@ -37,7 +38,7 @@ def main():
         repo_id="ysl2683/lane_lift_id_20_aligned",
         fps=10,
         features=features,
-        root="/home/ysl2683/cover/resfit/my_lerobot_data/ysl2683/lane_lift_id_20_aligned"
+        root=os.path.join(SCRIPT_DIR, "resfit/my_lerobot_data/ysl2683/lane_lift_id_20_aligned")
     )
     
     # Process episodes

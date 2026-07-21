@@ -4,7 +4,8 @@ import os
 import numpy as np
 
 def visualize_latent_distances():
-    latent_path = "/home/ysl2683/cover/lane/pretrained_e2c/lift/demo_latents.pt"
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+    latent_path = os.path.join(SCRIPT_DIR, "lane/pretrained_e2c/lift/demo_latents.pt")
     if not os.path.exists(latent_path):
         print("Latent file not found!")
         return
@@ -56,7 +57,8 @@ def visualize_latent_distances():
     plt.legend()
     
     plt.tight_layout()
-    save_path = "/home/ysl2683/.gemini/antigravity-cli/brain/0e2a66f7-0466-4792-b66f-af0935b365fb/e2c_latent_distance.png"
+    save_path = os.path.join(SCRIPT_DIR, "outputs/e2c_latent_distance.png")
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
     plt.savefig(save_path)
     print(f"Plot saved to {save_path}")
 

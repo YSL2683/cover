@@ -231,7 +231,8 @@ def main(cfg: ResidualTD3DexmgConfig):
     from resfit.lerobot.policies.diffusion.configuration_diffusion import DiffusionConfig
     
     from pathlib import Path
-    policy_dir = Path("/home/ysl2683/cover/resfit/my_lerobot_data/ysl2683/lane_lift_id_20_aligned/bc_run_2026-07-20_20-31-18_lane_lift_id_20_aligned_diffusion/latest/policy")
+    REPO_ROOT = Path(__file__).resolve().parents[3]
+    policy_dir = REPO_ROOT / "resfit/my_lerobot_data/ysl2683/lane_lift_id_20_aligned/bc_run_2026-07-20_20-31-18_lane_lift_id_20_aligned_diffusion/latest/policy"
     if not policy_dir.exists():
         raise FileNotFoundError(f"Could not find the base policy checkpoint at {policy_dir}!")
     
@@ -254,7 +255,7 @@ def main(cfg: ResidualTD3DexmgConfig):
 
     # Load dataset and get normalization functions early
     print("Loading dataset and setting up normalization...")
-    dataset = LeRobotDataset(cfg.offline_data.name, root=Path(f"/home/ysl2683/cover/resfit/my_lerobot_data/{cfg.offline_data.name}"))
+    dataset = LeRobotDataset(cfg.offline_data.name, root=REPO_ROOT / f"resfit/my_lerobot_data/{cfg.offline_data.name}")
 
     # Create action scaler from dataset statistics
     action_scaler = ActionScaler.from_dataset_stats(
@@ -447,7 +448,7 @@ def main(cfg: ResidualTD3DexmgConfig):
 
     # Use TensorDictPrioritizedReplayBuffer with optimized prefetching
     online_rb = TensorDictReplayBuffer(
-        storage=LazyMemmapStorage(max_size=cfg.algo.buffer_size, scratch_dir=Path("/home/ysl2683/cover/scratch/online")),
+        storage=LazyMemmapStorage(max_size=cfg.algo.buffer_size, scratch_dir=REPO_ROOT / "scratch/online"),
         transform=MultiStepTransform(n_steps=cfg.algo.n_step, gamma=cfg.algo.gamma),
         pin_memory=True,
         prefetch=cfg.algo.prefetch_batches,  # Add prefetching
@@ -539,7 +540,7 @@ def main(cfg: ResidualTD3DexmgConfig):
         print("Online-only mode: creating minimal offline buffer (unused)")
 
     offline_rb = TensorDictReplayBuffer(
-        storage=LazyMemmapStorage(max_size=max_offline_transitions, scratch_dir=Path("/home/ysl2683/cover/scratch/offline")),
+        storage=LazyMemmapStorage(max_size=max_offline_transitions, scratch_dir=REPO_ROOT / "scratch/offline"),
         transform=MultiStepTransform(n_steps=cfg.algo.n_step, gamma=cfg.algo.gamma),
         pin_memory=True,
         prefetch=cfg.algo.prefetch_batches,  # Add prefetching

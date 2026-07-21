@@ -8,7 +8,8 @@ import robosuite.utils.transform_utils as T
 config = load_controller_config(default_controller="OSC_POSE")
 
 NUM_DEMOS = 20
-ROOT_FOLDER = "/home/ysl2683/cover/lane/demo/robosuite_lift/"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_FOLDER = os.path.abspath(os.path.join(SCRIPT_DIR, "../demo/robosuite_lift/")) + "/"
 target_folder = ROOT_FOLDER + str(NUM_DEMOS)
 if not os.path.isdir(target_folder):
     os.makedirs(target_folder)

@@ -136,7 +136,8 @@ def precompute_demo_latents(e2c_front, e2c_wrist, obs_f, obs_w, demo_starts, dem
 
 if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    demo_dir = "/home/ysl2683/cover/lane/demo/robosuite_lift/20/"
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+    demo_dir = os.path.join(SCRIPT_DIR, "demo/robosuite_lift/20/")
     
     print("Loading demos...")
     obs, next_obs, actions, starts, ends = load_demos(demo_dir)
@@ -154,7 +155,7 @@ if __name__ == "__main__":
     z_df, z_dw, t_lens = precompute_demo_latents(e2c_f, e2c_w, obs_f, obs_w, starts, ends, device)
     
     print("Saving artifacts...")
-    save_dir = "/home/ysl2683/cover/lane/pretrained_e2c/lift"
+    save_dir = os.path.join(SCRIPT_DIR, "pretrained_e2c/lift")
     os.makedirs(save_dir, exist_ok=True)
     torch.save(e2c_f.state_dict(), os.path.join(save_dir, "e2c_front.pt"))
     torch.save(e2c_w.state_dict(), os.path.join(save_dir, "e2c_wrist.pt"))

@@ -6,7 +6,9 @@ from PIL import Image
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 
 def main():
-    demo_dir = "/home/ysl2683/LaNE/demo/robosuite_pick_place_can/20/"
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+    REPO_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "../../../"))
+    demo_dir = os.path.join(REPO_ROOT, "lane/demo/robosuite_pick_place_can/20/")
     pt_files = [f for f in os.listdir(demo_dir) if f.endswith(".pt")]
     pt_path = os.path.join(demo_dir, pt_files[0])
     payload = torch.load(pt_path, weights_only=False)
@@ -33,7 +35,7 @@ def main():
     dataset = LeRobotDataset.create(
         repo_id="ysl2683/lane_can",
         fps=10,
-        root="/home/ysl2683/residual-offpolicy-rl/resfit/my_lerobot_data",
+        root=os.path.join(REPO_ROOT, "resfit/my_lerobot_data"),
         features=features
     )
     
