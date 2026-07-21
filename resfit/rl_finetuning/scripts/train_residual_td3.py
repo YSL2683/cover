@@ -895,7 +895,6 @@ def main(cfg: ResidualTD3DexmgConfig):
     model_save_dir.mkdir(parents=True, exist_ok=True)
     outputs_dir.mkdir(parents=True, exist_ok=True)
     
-    from datetime import datetime
     tb_run_name = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     tb_writer = SummaryWriter(log_dir=str(run_cache_dir / "tb_logs" / tb_run_name))
 
