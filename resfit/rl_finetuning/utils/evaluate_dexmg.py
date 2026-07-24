@@ -79,6 +79,46 @@ def run_dexmg_evaluation(
 
         return np.asarray(pil_img)
 
+    def _render_3d_action_vectors(base_a, res_a, tot_a, target_h) -> np.ndarray:
+        """Render a 3D quiver plot of the XYZ translation delta actions."""
+        fig = plt.figure(figsize=(4, 4))
+        # Use add_subplot with projection='3d'
+        ax = fig.add_subplot(111, projection='3d')
+        
+        # Actions are 7D. We only care about translation [x, y, z] for the 3D plot
+        # Normalization limit is typically 1.0
+        x, y, z = 0.0, 0.0, 0.0
+        
+        ax.quiver(x, y, z, base_a[0], base_a[1], base_a[2], color='blue', label='Base', arrow_length_ratio=0.15)
+        # Residual action starts from the tip of the base action
+        ax.quiver(base_a[0], base_a[1], base_a[2], res_a[0], res_a[1], res_a[2], color='red', label='Residual', arrow_length_ratio=0.15)
+        # Total action is the sum, starting from origin
+        ax.quiver(x, y, z, tot_a[0], tot_a[1], tot_a[2], color='green', label='Total', arrow_length_ratio=0.15)
+        
+        # Fixed limits so the camera doesn't jump around
+        lim = 1.0
+        ax.set_xlim([-lim, lim])
+        ax.set_ylim([-lim, lim])
+        ax.set_zlim([-lim, lim])
+        ax.set_xlabel('X')
+        ax.set_ylabel('Y')
+        ax.set_zlabel('Z')
+        ax.set_title("3D Delta Pose (XYZ)")
+        ax.legend(loc='upper left', fontsize='small')
+        
+        # Draw and convert to numpy array
+        fig.canvas.draw()
+        rgba = np.asarray(fig.canvas.buffer_rgba())
+        img = rgba[..., :3]  # Drop alpha channel
+        plt.close(fig)
+        
+        # Resize image to match the video frame's height exactly
+        pil_img = Image.fromarray(img)
+        aspect_ratio = pil_img.width / pil_img.height
+        new_w = int(target_h * aspect_ratio)
+        pil_img = pil_img.resize((new_w, target_h), Image.Resampling.LANCZOS)
+        return np.asarray(pil_img)
+
     def _create_q_trajectory_plots(
         trajectories: list[list[float]],
         episode_lengths: list[int],
@@ -161,6 +201,9 @@ def run_dexmg_evaluation(
 
     # Video buffers -----------------------------------------------------
     frame_buffer: list[list[np.ndarray]] | None = [[] for _ in range(num_envs)] if save_video else None
+    base_act_buffer: list[list[np.ndarray]] | None = [[] for _ in range(num_envs)] if save_video else None
+    res_act_buffer: list[list[np.ndarray]] | None = [[] for _ in range(num_envs)] if save_video else None
+    tot_act_buffer: list[list[np.ndarray]] | None = [[] for _ in range(num_envs)] if save_video else None
     all_frames: list[np.ndarray] | None = [] if save_video else None
 
     done_episodes = 0
@@ -192,7 +235,7 @@ def run_dexmg_evaluation(
         # --------------------------------------------------------------
         # 2. Environment step ------------------------------------------
         # --------------------------------------------------------------
-        next_obs, reward, terminated, truncated, _ = env.step(actions)
+        next_obs, reward, terminated, truncated, info = env.step(actions)
         done_flags = terminated | truncated
 
         # Capture frames ------------------------------------------------
@@ -200,6 +243,9 @@ def run_dexmg_evaluation(
             frame = env.render()
             for env_idx in range(num_envs):
                 frame_buffer[env_idx].append(frame[env_idx])
+                base_act_buffer[env_idx].append(obs["observation.base_action"][env_idx].detach().cpu().numpy())
+                res_act_buffer[env_idx].append(actions[env_idx].detach().cpu().numpy())
+                tot_act_buffer[env_idx].append(q_actions[env_idx].detach().cpu().numpy())
 
         # --------------------------------------------------------------
         # 3. Per-environment bookkeeping -------------------------------
@@ -211,7 +257,27 @@ def run_dexmg_evaluation(
             if done_flags[env_idx]:
                 # Episode finished -- aggregate results ----------------
                 ep_return = float(sum(ep_rewards[env_idx]))
-                is_success = bool(reward[env_idx].item() == 1.0)
+                
+                # Retrieve success flag directly from environment info (Gymnasium VectorEnv format)
+                is_success = False
+                try:
+                    if "final_info" in info:
+                        if isinstance(info["final_info"], (list, tuple)):
+                            if info["final_info"][env_idx] is not None:
+                                is_success = bool(info["final_info"][env_idx].get("success", False))
+                    if not is_success and "success" in info:
+                        if isinstance(info["success"], (list, tuple, np.ndarray)):
+                            is_success = bool(info["success"][env_idx])
+                        elif isinstance(info["success"], torch.Tensor):
+                            is_success = bool(info["success"][env_idx].item())
+                        else:
+                            is_success = bool(info["success"])
+                except Exception:
+                    pass
+                
+                # Ultimate fallback to reward logic just in case info is missing
+                if not is_success:
+                    is_success = bool(reward[env_idx].item() == 1.0 or reward[env_idx].item() > 50.0)
 
                 # Update progress display
                 progress_dots[done_episodes] = "✓" if is_success else "✗"
@@ -237,8 +303,18 @@ def run_dexmg_evaluation(
                     # Only save the first episode video to avoid huge files
                     if episode_global_idx == 1:
                         for step_idx, fr in enumerate(episode_frames):
+                            # Generate 3D plot image
+                            plot_img = _render_3d_action_vectors(
+                                base_act_buffer[env_idx][step_idx],
+                                res_act_buffer[env_idx][step_idx],
+                                tot_act_buffer[env_idx][step_idx],
+                                target_h=fr.shape[0]
+                            )
+                            # Combine frame and plot side-by-side
+                            combined_fr = np.concatenate([fr, plot_img], axis=1)
+
                             annotated_fr = _annotate_frame(
-                                fr,
+                                combined_fr,
                                 env_idx=env_idx,
                                 episode_num=episode_global_idx,
                                 total_episodes=num_episodes,
@@ -248,8 +324,11 @@ def run_dexmg_evaluation(
                             )
                             all_frames.append(annotated_fr)
 
-                    # Clear per-episode frame buffer
+                    # Clear per-episode frame buffers
                     frame_buffer[env_idx].clear()
+                    base_act_buffer[env_idx].clear()
+                    res_act_buffer[env_idx].clear()
+                    tot_act_buffer[env_idx].clear()
 
                 # Reset per-env caches --------------------------------
                 ep_rewards[env_idx].clear()

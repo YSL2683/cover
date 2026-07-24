@@ -434,13 +434,9 @@ class QAgent(nn.Module):
             use_target=False,
         )
 
-        # Add L2 regularization on action magnitude (before we add the residual action to the base)
-        # We apply this specifically to (1,1) states where base policy is reliable.
-        if "observation.is_state_11" in obs:
-            is_11_mask = obs["observation.is_state_11"].squeeze(-1).float()
-            action_l2_penalty = self.cfg.actor.action_l2_reg_weight * torch.mean(is_11_mask * torch.sum(action_pred**2, dim=-1))
-        else:
-            action_l2_penalty = self.cfg.actor.action_l2_reg_weight * torch.mean(torch.sum(action_pred**2, dim=-1))
+        # Action L2 regularization on action magnitude has been removed from actor loss
+        # and moved to the reward function.
+        action_l2_penalty = torch.tensor(0.0, device=obs["feat"].device)
 
         if self.residual_actor:
             # Create the full action by combining the base action and the residual action
@@ -452,7 +448,7 @@ class QAgent(nn.Module):
         q = self.critic.q_value_for_policy(obs["feat"], obs["observation.state"], combined_action)
         actor_loss_base = -q.mean()
 
-        actor_loss_total = actor_loss_base + action_l2_penalty
+        actor_loss_total = actor_loss_base
 
         return actor_loss_total, actor_loss_base, combined_action, action_pred, action_l2_penalty
 

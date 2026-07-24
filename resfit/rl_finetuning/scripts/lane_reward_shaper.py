@@ -11,9 +11,11 @@ sys.path.append(str(lane_dir))
 from e2c import MLPE2C
 
 class LaNERewardShaper:
-    def __init__(self, device, action_dim, offline_rb, p_reward=1.0):
+    def __init__(self, device, action_dim, offline_rb, p_reward=1.0, action_l2_reg_weight=0.0, reward_type="reward_2"):
         self.device = device
         self.p_reward = p_reward
+        self.action_l2_reg_weight = action_l2_reg_weight
+        self.reward_type = reward_type
         self.offline_rb = offline_rb
         
         print("Loading DINOv2 model...")
@@ -260,40 +262,108 @@ class LaNERewardShaper:
             updated_any = update_min_f | update_min_w
             T_demos[updated_any] = z_dist_f.shape[1]
             
-        not_done_np = not_done.detach().cpu().numpy().flatten()
-        mask_f = (min_dist_f < self.ref_one_step_dist_front) & not_done_np
-        mask_w = (min_dist_w < self.ref_one_step_dist_wrist) & not_done_np
-        
-        prog_f = idx_f_best / np.maximum(T_demos, 1)
-        prog_w = idx_w_best / np.maximum(T_demos, 1)
-        
-        final_reward_mask = np.zeros_like(mask_f, dtype=bool)
-        final_discount_power = np.zeros_like(mask_f, dtype=np.float32)
-        
-        idx_11 = mask_f & mask_w
-        final_reward_mask[idx_11] = True
-        min_prog = np.minimum(prog_f[idx_11], prog_w[idx_11])
-        final_discount_power[idx_11] = T_demos[idx_11] * (1 - min_prog)
-        
-        idx_01 = (~mask_f) & mask_w
-        final_reward_mask[idx_01] = True
-        final_discount_power[idx_01] = T_demos[idx_01] * (1 - prog_w[idx_01])
-        
-        demo_reward_discount = 0.98
-        additional_reward = (
-            np.power(demo_reward_discount, final_discount_power)
-            * final_reward_mask
-            * self.p_reward
-        )
-        
-        # Add to batch
-        add_rew = torch.as_tensor(additional_reward, device=self.device).view(batch["next", "reward"].shape)
-        batch["next", "reward"] += add_rew
-        
-        # Return stats for logging
-        return {
-            "lane/avg_discount": (final_discount_power * final_reward_mask).sum() / max(final_reward_mask.sum(), 1),
-            "lane/num_additional_reward": final_reward_mask.sum(),
-            "lane/num_11_reward": idx_11.sum(),
-            "lane/num_01_reward": idx_01.sum(),
-        }
+        if self.reward_type == "reward_1":
+            not_done_np = not_done.detach().cpu().numpy().flatten()
+            mask_f = (min_dist_f < self.ref_one_step_dist_front) & not_done_np
+            mask_w = (min_dist_w < self.ref_one_step_dist_wrist) & not_done_np
+            
+            prog_f = idx_f_best / np.maximum(T_demos, 1)
+            prog_w = idx_w_best / np.maximum(T_demos, 1)
+            
+            final_reward_mask = np.zeros_like(mask_f, dtype=bool)
+            final_discount_power = np.zeros_like(mask_f, dtype=np.float32)
+            
+            idx_11 = mask_f & mask_w
+            final_reward_mask[idx_11] = True
+            min_prog = np.minimum(prog_f[idx_11], prog_w[idx_11])
+            final_discount_power[idx_11] = T_demos[idx_11] * (1 - min_prog)
+            
+            idx_01 = (~mask_f) & mask_w
+            final_reward_mask[idx_01] = True
+            final_discount_power[idx_01] = T_demos[idx_01] * (1 - prog_w[idx_01])
+            
+            demo_reward_discount = 0.98
+            additional_reward = (
+                np.power(demo_reward_discount, final_discount_power)
+                * final_reward_mask
+                * self.p_reward
+            )
+            
+            add_rew = torch.as_tensor(additional_reward, device=self.device).view(batch["next", "reward"].shape)
+            batch["next", "reward"] += add_rew
+            
+            # Action L2 penalty: penalize residual action magnitude in ID (1,1) states
+            action_l2_penalty_mean = 0.0
+            if self.action_l2_reg_weight > 0:
+                action = batch["action"]
+                action_l2 = (action ** 2).sum(dim=-1)
+                idx_11_torch = torch.as_tensor(idx_11, device=self.device, dtype=torch.float32)
+                penalty = self.action_l2_reg_weight * idx_11_torch * action_l2
+                penalty = penalty.view(batch["next", "reward"].shape)
+                batch["next", "reward"] -= penalty
+                action_l2_penalty_mean = penalty.mean().item()
+            
+            return {
+                "lane/avg_discount": (final_discount_power * final_reward_mask).sum() / max(final_reward_mask.sum(), 1),
+                "lane/num_additional_reward": final_reward_mask.sum(),
+                "lane/num_11_reward": idx_11.sum(),
+                "lane/num_01_reward": idx_01.sum(),
+                "lane/action_l2_penalty": action_l2_penalty_mean,
+            }
+            
+        elif self.reward_type == "reward_2":
+            # -------------------------------------------------------------
+            # Reward 2: Continuous RBF Kernel with 4th power distance
+            # -------------------------------------------------------------
+            # Note: min_dist_f is already the SQUARED distance (L2 norm squared)
+            # To get 4th power distance, we simply square min_dist_f again.
+            # epsilon is self.ref_one_step_dist (which is also a squared distance)
+            
+            beta = 1.0
+            
+            # gamma = beta / (epsilon^2) so that exp(-gamma * (epsilon^2)) = exp(-beta)
+            gamma_m = beta / ((self.ref_one_step_dist_front ** 2) + 1e-8)
+            gamma_w = beta / ((self.ref_one_step_dist_wrist ** 2) + 1e-8)
+            
+            # Similarity scores S_main and S_wrist (using 4th power of distance)
+            S_main = np.exp(-gamma_m * (min_dist_f ** 2))
+            S_wrist = np.exp(-gamma_w * (min_dist_w ** 2))
+            
+            w_m = 0.3
+            w_w = 0.7
+            alpha = 0.98
+            
+            # Remaining timesteps: T_i^* - t^*
+            rem_t_f = T_demos - idx_f_best
+            rem_t_w = T_demos - idx_w_best
+            
+            # Dense reward computation
+            r_dense = (w_m * np.power(alpha, rem_t_f) * S_main) + (w_w * np.power(alpha, rem_t_w) * S_wrist)
+            r_dense = r_dense * self.p_reward
+            
+            # Add dense reward to batch
+            add_rew = torch.as_tensor(r_dense, device=self.device, dtype=torch.float32).view(batch["next", "reward"].shape)
+            batch["next", "reward"] += add_rew
+            
+            # Action regularization term
+            action_l2_penalty_mean = 0.0
+            if self.action_l2_reg_weight > 0:
+                action = batch["action"]
+                action_l2 = (action ** 2).sum(dim=-1)
+                
+                # S_main * S_wrist
+                S_joint = torch.as_tensor(S_main * S_wrist, device=self.device, dtype=torch.float32)
+                
+                # r_reg = lambda * (S_main * S_wrist) * ||a_res||^2
+                r_reg = self.action_l2_reg_weight * S_joint * action_l2
+                r_reg = r_reg.view(batch["next", "reward"].shape)
+                
+                batch["next", "reward"] -= r_reg
+                action_l2_penalty_mean = r_reg.mean().item()
+                
+            return {
+                "lane/S_main_avg": S_main.mean(),
+                "lane/S_wrist_avg": S_wrist.mean(),
+                "lane/r_dense_avg": r_dense.mean(),
+                "lane/action_l2_penalty": action_l2_penalty_mean,
+            }

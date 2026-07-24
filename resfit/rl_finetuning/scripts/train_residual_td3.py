@@ -186,6 +186,15 @@ def _add_transitions_to_buffer(
         to_uint8(curr_obs_i, image_keys)
         to_uint8(next_obs_i, image_keys)
 
+        # Map raw environment reward (0/1 sparse) to shaped base reward:
+        # success (reward > 0.5) -> +100.0, step penalty -> -1.0
+        raw_r = reward[i]
+        shaped_r = torch.where(
+            raw_r > 0.5,
+            torch.tensor(100.0, dtype=torch.float32, device=raw_r.device),
+            torch.tensor(-1.0, dtype=torch.float32, device=raw_r.device),
+        )
+
         td = TensorDict(
             {
                 "obs": TensorDict(curr_obs_i, batch_size=[]),
@@ -193,7 +202,7 @@ def _add_transitions_to_buffer(
                     {
                         "obs": TensorDict(next_obs_i, batch_size=[]),
                         "done": done[i],
-                        "reward": reward[i],
+                        "reward": shaped_r,
                     },
                     batch_size=[],
                 ),
@@ -352,26 +361,9 @@ def main(cfg: ResidualTD3DexmgConfig):
         state_standardizer=state_standardizer,
     )
 
-    # Inject HybridRewardVecEnvWrapper
-    from lane.e2c import MLPE2C
-    from resfit.rl_finetuning.wrappers.hybrid_reward_wrapper import LatentDistanceModule, HybridRewardVecEnvWrapper
-    
-    base_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    # base_path is cover/resfit. dirname(base_path) is cover.
-    lane_weights_dir = os.path.join(os.path.dirname(base_path), "lane", "pretrained_e2c", "lift")
-
-    e2c_front = MLPE2C(obs_shape=(384,), action_dim=7, z_dimension=16)
-    e2c_front.load_state_dict(torch.load(os.path.join(lane_weights_dir, "e2c_front.pt"), weights_only=True))
-    e2c_wrist = MLPE2C(obs_shape=(384,), action_dim=7, z_dimension=16)
-    e2c_wrist.load_state_dict(torch.load(os.path.join(lane_weights_dir, "e2c_wrist.pt"), weights_only=True))
-    
-    payload = torch.load(os.path.join(lane_weights_dir, "demo_latents.pt"), weights_only=False)
-    latent_reward_module = LatentDistanceModule(
-        e2c_front, e2c_wrist, payload["z_demo_front"], payload["z_demo_wrist"], payload["demo_lengths"], p_reward=1.0, device=device_str
-    )
-
-    env = HybridRewardVecEnvWrapper(env, latent_reward_module, "observation.images.frontview", "observation.images.robot0_eye_in_hand")
-    eval_env = HybridRewardVecEnvWrapper(eval_env, latent_reward_module, "observation.images.frontview", "observation.images.robot0_eye_in_hand")
+    # NOTE: HybridRewardVecEnvWrapper (real-time dense reward) has been removed.
+    # All dense reward shaping and action penalty are now handled exclusively by
+    # LaNERewardShaper at batch training time (offline/shard-level).
 
     # Seed environments explicitly for reproducibility
     if hasattr(env, "seed"):
@@ -410,7 +402,7 @@ def main(cfg: ResidualTD3DexmgConfig):
     horizon = env.vec_env.metadata["horizon"]
 
     # --- Resume Logic ---
-    run_cache_dir = _CACHE_ROOT / "run_fixed_150k"
+    run_cache_dir = _CACHE_ROOT / (cfg.wandb.name if getattr(cfg.wandb, "name", None) else "run_fixed_150k")
     model_save_dir = run_cache_dir / "models"
     start_step = 0
     if model_save_dir.exists():
@@ -889,7 +881,7 @@ def main(cfg: ResidualTD3DexmgConfig):
     # Log horizon to wandb summary
     wandb.summary["environment/horizon"] = env.vec_env.metadata["horizon"]
 
-    run_cache_dir = _CACHE_ROOT / "run_fixed_150k"
+    run_cache_dir = _CACHE_ROOT / (cfg.wandb.name if getattr(cfg.wandb, "name", None) else "run_fixed_150k")
     model_save_dir = run_cache_dir / "models"
     outputs_dir = run_cache_dir / "outputs"
     model_save_dir.mkdir(parents=True, exist_ok=True)
@@ -899,7 +891,12 @@ def main(cfg: ResidualTD3DexmgConfig):
     tb_writer = SummaryWriter(log_dir=str(run_cache_dir / "tb_logs" / tb_run_name))
 
     print("Initializing LaNERewardShaper...")
-    lane_shaper = LaNERewardShaper(device, action_dim, offline_rb, p_reward=1.0)
+    lane_shaper = LaNERewardShaper(
+        device, action_dim, offline_rb, 
+        p_reward=1.0, 
+        action_l2_reg_weight=cfg.agent.actor.action_l2_reg_weight,
+        reward_type=getattr(cfg.algo, "reward_type", "reward_2")
+    )
     lane_shaper.precompute_offline_dino()
     lane_shaper.precompute_online_dino(online_rb)
     print("LaNERewardShaper initialized.")
@@ -907,6 +904,23 @@ def main(cfg: ResidualTD3DexmgConfig):
     obs, _ = env.reset()
 
     global_step = start_step
+
+    if getattr(cfg, "eval_only", False):
+        print(f"Running in evaluation only mode from step {global_step}...")
+        eval_metrics = run_dexmg_evaluation(
+            env=eval_env,
+            agent=agent,
+            num_episodes=cfg.eval_num_episodes,
+            device=device,
+            global_step=global_step,
+            save_video=cfg.save_video,
+            save_q_plots=cfg.save_video,
+            run_name=run_name,
+            output_dir=outputs_dir,
+        )
+        print("Evaluation only mode finished. Exiting.")
+        import sys
+        sys.exit(0)
     best_eval_success_rate = 0.0
     training_cum_time = 0.0
     episode_count = 0
@@ -974,7 +988,7 @@ def main(cfg: ResidualTD3DexmgConfig):
     # ------------------------------------------------------------------
     # Critic warmup phase ----------------------------------------------
     # ------------------------------------------------------------------
-    if cfg.algo.critic_warmup_steps > 0:
+    if cfg.algo.critic_warmup_steps > 0 and start_step == 0:
         print(f"Critic warmup: running {cfg.algo.critic_warmup_steps} critic-only updates...")
         _run_critic_warmup(
             agent=agent,
@@ -987,6 +1001,16 @@ def main(cfg: ResidualTD3DexmgConfig):
             offline_batch_size=offline_batch_size,
         )
         print("Critic warmup completed.")
+
+    # Reset transform buffer to avoid KEY mismatch when starting main training loop
+    if hasattr(online_rb, "_transform"):
+        from torchrl.envs.transforms.transforms import Compose
+        if isinstance(online_rb._transform, Compose):
+            for t in online_rb._transform:
+                if hasattr(t, "_buffer"):
+                    t._buffer = None
+        elif hasattr(online_rb._transform, "_buffer"):
+            online_rb._transform._buffer = None
 
     while global_step <= cfg.algo.total_timesteps:
         iter_start = time.time()

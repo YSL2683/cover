@@ -96,6 +96,7 @@ class ResidualTD3DexmgConfig(RLPDDexmgConfig):
             actor=ActorConfig(
                 action_scale=0.1,
                 actor_last_layer_init_scale=0.0,  # imp for residual
+                action_l2_reg_weight=0.05,
             ),
         )
     )
@@ -128,6 +129,9 @@ class ResidualTD3DexmgConfig(RLPDDexmgConfig):
 
     # Whether to run an evaluation pass before training begins (at step 0)
     eval_first: bool = True
+    
+    # Whether to run strictly in evaluation mode and exit (useful for evaluating checkpoints)
+    eval_only: bool = False
 
 
 @dataclass
