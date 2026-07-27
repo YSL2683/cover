@@ -222,8 +222,8 @@ class RobosuiteGymWrapper:
                         sampler = list(samplers.values())[0]
                 
                 if sampler is not None:
-                    sampler.x_range = [0.025, 0.075]
-                    sampler.y_range = [-0.025, 0.025]
+                    sampler.x_range = [-0.05, 0.05]
+                    sampler.y_range = [-0.05, 0.05]
             except Exception as e:
                 logger.warning(f"Failed to set OOD placement sampler: {e}")
 

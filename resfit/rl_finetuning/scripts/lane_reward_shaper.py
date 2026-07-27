@@ -222,10 +222,6 @@ class LaNERewardShaper:
             return batch
             
         if not self.initialized:
-            self.update_e2c(1000, mse_tol=0.2)
-            self.initialize_demos()
-        elif step % 300 == 0:
-            self.update_e2c(1000, mse_tol=0.2)
             self.initialize_demos()
             
         # compute for the current batch

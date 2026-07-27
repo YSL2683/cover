@@ -139,6 +139,9 @@ _CACHE_ROOT = Path(os.environ.get("CACHE_DIR", ".")).expanduser().resolve()
 OFFLINE_CACHE_DIR = _CACHE_ROOT / "offline_buffer_cache"
 ONLINE_CACHE_DIR = _CACHE_ROOT / "online_buffer_cache"
 
+# Output directory for residual RL results ----------------------------------
+OUTPUTS_ROOT = Path(__file__).resolve().parents[3] / "resfit" / "outputs"
+
 
 # -----------------------------------------------------------------------------
 # Repository-local imports ------------------------------------------------------
@@ -241,7 +244,7 @@ def main(cfg: ResidualTD3DexmgConfig):
     
     from pathlib import Path
     REPO_ROOT = Path(__file__).resolve().parents[3]
-    policy_dir = REPO_ROOT / "resfit/my_lerobot_data/ysl2683/lane_lift_id_20_aligned/bc_run_2026-07-20_20-31-18_lane_lift_id_20_aligned_diffusion/latest/policy"
+    policy_dir = REPO_ROOT / "resfit/my_lerobot_data/bc_run_2026-07-21_20-33-25_lane_lift_id_20_aligned_diffusion/policy_step_9999/policy"
     if not policy_dir.exists():
         raise FileNotFoundError(f"Could not find the base policy checkpoint at {policy_dir}!")
     
@@ -402,16 +405,18 @@ def main(cfg: ResidualTD3DexmgConfig):
     horizon = env.vec_env.metadata["horizon"]
 
     # --- Resume Logic ---
-    run_cache_dir = _CACHE_ROOT / (cfg.wandb.name if getattr(cfg.wandb, "name", None) else "run_fixed_150k")
-    model_save_dir = run_cache_dir / "models"
+    # Check if a specific run directory is provided for resuming
+    resume_run_dir = os.environ.get("RESUME_RUN_DIR")
     start_step = 0
-    if model_save_dir.exists():
-        ckpts = list(model_save_dir.glob("agent_*.pt"))
-        if ckpts:
-            latest = max(ckpts, key=lambda p: int(p.stem.split("_")[1]))
-            agent.load_state_dict(torch.load(latest, map_location=device, weights_only=True))
-            start_step = int(latest.stem.split("_")[1])
-            print(f"Resumed from {latest} at step {start_step}")
+    if resume_run_dir:
+        resume_model_dir = Path(resume_run_dir) / "models"
+        if resume_model_dir.exists():
+            ckpts = list(resume_model_dir.glob("agent_*.pt"))
+            if ckpts:
+                latest = max(ckpts, key=lambda p: int(p.stem.split("_")[1]))
+                agent.load_state_dict(torch.load(latest, map_location=device, weights_only=True))
+                start_step = int(latest.stem.split("_")[1])
+                print(f"Resumed from {latest} at step {start_step}")
     # --------------------
 
     # Set up actor learning rate warmup
@@ -867,6 +872,13 @@ def main(cfg: ResidualTD3DexmgConfig):
     print("Launching run with the following config:")
     pprint.pprint(_wandb_config)
 
+    # --- Output directory: resfit/outputs/{datetime}_{wandb_name} ---
+    run_timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    wandb_name = cfg.wandb.name if getattr(cfg.wandb, "name", None) else "default"
+    run_dir_name = f"{run_timestamp}_{wandb_name}"
+    run_cache_dir = OUTPUTS_ROOT / run_dir_name
+    run_cache_dir.mkdir(parents=True, exist_ok=True)
+
     wandb.init(
         id=cfg.wandb.continue_run_id,
         resume=None if cfg.wandb.continue_run_id is None else "allow",
@@ -877,18 +889,18 @@ def main(cfg: ResidualTD3DexmgConfig):
         mode=cfg.wandb.mode if not cfg.debug else "disabled",
         notes=cfg.wandb.notes,
         group=cfg.wandb.group,
+        dir=str(run_cache_dir),
     )
     # Log horizon to wandb summary
     wandb.summary["environment/horizon"] = env.vec_env.metadata["horizon"]
 
-    run_cache_dir = _CACHE_ROOT / (cfg.wandb.name if getattr(cfg.wandb, "name", None) else "run_fixed_150k")
     model_save_dir = run_cache_dir / "models"
     outputs_dir = run_cache_dir / "outputs"
     model_save_dir.mkdir(parents=True, exist_ok=True)
     outputs_dir.mkdir(parents=True, exist_ok=True)
     
-    tb_run_name = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    tb_writer = SummaryWriter(log_dir=str(run_cache_dir / "tb_logs" / tb_run_name))
+    tb_writer = SummaryWriter(log_dir=str(run_cache_dir / "tb_logs"))
+    print(f"Run output directory: {run_cache_dir}")
 
     print("Initializing LaNERewardShaper...")
     lane_shaper = LaNERewardShaper(
@@ -899,6 +911,25 @@ def main(cfg: ResidualTD3DexmgConfig):
     )
     lane_shaper.precompute_offline_dino()
     lane_shaper.precompute_online_dino(online_rb)
+    
+    # Load pretrained E2C to avoid feature collapse and freeze it
+    if "lift" in cfg.task.lower():
+        e2c_dir = "/home/moai/ysl_ws/cover/lane/pretrained_e2c/lift"
+        if os.path.exists(e2c_dir):
+            print(f"Loading pretrained E2C weights from {e2c_dir}...")
+            lane_shaper.e2c_front.load_state_dict(torch.load(f"{e2c_dir}/e2c_front.pt", map_location=device))
+            lane_shaper.e2c_wrist.load_state_dict(torch.load(f"{e2c_dir}/e2c_wrist.pt", map_location=device))
+            lane_shaper.e2c_front.eval()
+            lane_shaper.e2c_wrist.eval()
+            
+            # Freeze E2C weights
+            for p in lane_shaper.e2c_front.parameters(): p.requires_grad = False
+            for p in lane_shaper.e2c_wrist.parameters(): p.requires_grad = False
+            
+            lane_shaper.initialized = True
+            lane_shaper.initialize_demos()
+            print("Pretrained E2C weights loaded and frozen.")
+            
     print("LaNERewardShaper initialized.")
 
     obs, _ = env.reset()
@@ -906,6 +937,11 @@ def main(cfg: ResidualTD3DexmgConfig):
     global_step = start_step
 
     if getattr(cfg, "eval_only", False):
+        if os.environ.get("VISUALIZE") == "1":
+            from visualize_dashboard import run_visualizations
+            run_visualizations(env, agent, lane_shaper, cfg)
+            return
+            
         print(f"Running in evaluation only mode from step {global_step}...")
         eval_metrics = run_dexmg_evaluation(
             env=eval_env,
@@ -1273,12 +1309,8 @@ def main(cfg: ResidualTD3DexmgConfig):
 
     print(f"Training finished in {time.time() - train_start_time:.2f} seconds.")
 
-    # Clean up entire run directory after successful completion (videos/logs are saved to wandb)
-    if run_cache_dir.exists():
-        print(f"Successfully cleaned up run directory: {run_cache_dir}")
-        print("Run directory cleaned up successfully.")
-        
     tb_writer.close()
+    print(f"All results saved to: {run_cache_dir}")
 
 
 # -----------------------------------------------------------------------------

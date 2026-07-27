@@ -68,7 +68,7 @@ def extract_dino_features(obs_list, dino, device, batch_size=32):
             
     return torch.cat(features_front, dim=0), torch.cat(features_wrist, dim=0)
 
-def train_e2c(obs_f, obs_w, next_obs_f, next_obs_w, actions, device="cuda", n_iter=5000):
+def train_e2c(obs_f, obs_w, next_obs_f, next_obs_w, actions, device="cuda", n_iter=5000, mse_tol=1e-2):
     action_dim = actions.shape[1]
     
     e2c_front = MLPE2C(obs_shape=(384,), action_dim=action_dim, z_dimension=16).to(device)
@@ -80,8 +80,15 @@ def train_e2c(obs_f, obs_w, next_obs_f, next_obs_w, actions, device="cuda", n_it
     dataset = TensorDataset(obs_f, obs_w, actions, next_obs_f, next_obs_w)
     loader = DataLoader(dataset, batch_size=128, shuffle=True)
     
-    print("Training E2C...")
-    for step in range(n_iter):
+    print(f"Training E2C (Early stopping if MSE < {mse_tol})...")
+    
+    global_step = 0
+    early_stop = False
+    
+    for epoch in range(n_iter):
+        if early_stop:
+            break
+            
         total_loss_f = 0
         total_loss_w = 0
         
@@ -107,8 +114,15 @@ def train_e2c(obs_f, obs_w, next_obs_f, next_obs_w, actions, device="cuda", n_it
             total_loss_f += loss_f.item()
             total_loss_w += loss_w.item()
             
-        if (step+1) % 100 == 0:
-            print(f"Step {step+1}: Loss F = {total_loss_f/len(loader):.4f}, Loss W = {total_loss_w/len(loader):.4f}")
+            global_step += 1
+            
+            if mse_tol is not None and mse_f.item() < mse_tol and mse_w.item() < mse_tol:
+                print(f"Early stopping at epoch {epoch+1}, global step {global_step} (MSE F={mse_f.item():.4f}, MSE W={mse_w.item():.4f})")
+                early_stop = True
+                break
+            
+        if not early_stop and (epoch+1) % 100 == 0:
+            print(f"Epoch {epoch+1}: Loss F = {total_loss_f/len(loader):.4f}, Loss W = {total_loss_w/len(loader):.4f}")
             
     return e2c_front, e2c_wrist
 
