@@ -244,9 +244,12 @@ def main(cfg: ResidualTD3DexmgConfig):
     
     from pathlib import Path
     REPO_ROOT = Path(__file__).resolve().parents[3]
-    policy_dir = REPO_ROOT / "resfit/my_lerobot_data/bc_run_2026-07-21_20-33-25_lane_lift_id_20_aligned_diffusion/policy_step_9999/policy"
+    policy_dir = Path(cfg.base_policy_path)
+    if not policy_dir.is_absolute():
+        policy_dir = REPO_ROOT / policy_dir
     if not policy_dir.exists():
         raise FileNotFoundError(f"Could not find the base policy checkpoint at {policy_dir}!")
+    print(f"Loading base policy from: {policy_dir}")
     
     base_policy: DiffusionPolicy = load_policy(policy_dir)
     base_policy.to(device)
@@ -916,23 +919,24 @@ def main(cfg: ResidualTD3DexmgConfig):
     lane_shaper.precompute_offline_dino()
     lane_shaper.precompute_online_dino(online_rb)
     
-    # Load pretrained E2C to avoid feature collapse and freeze it
-    if "lift" in cfg.task.lower():
-        e2c_dir = "/home/moai/ysl_ws/cover/lane/pretrained_e2c/lift"
-        if os.path.exists(e2c_dir):
-            print(f"Loading pretrained E2C weights from {e2c_dir}...")
-            lane_shaper.e2c_main.load_state_dict(torch.load(f"{e2c_dir}/e2c_front.pt", map_location=device))
-            lane_shaper.e2c_wrist.load_state_dict(torch.load(f"{e2c_dir}/e2c_wrist.pt", map_location=device))
-            lane_shaper.e2c_main.train()
-            lane_shaper.e2c_wrist.train()
-            
-            # Unfreeze E2C weights
-            for p in lane_shaper.e2c_main.parameters(): p.requires_grad = True
-            for p in lane_shaper.e2c_wrist.parameters(): p.requires_grad = True
-            
-            lane_shaper.initialized = True
-            lane_shaper.initialize_demos()
-            print("Pretrained E2C weights loaded and set to train mode.")
+    # Load pretrained E2C to avoid feature collapse
+    e2c_dir = cfg.e2c_dir
+    if e2c_dir and os.path.exists(e2c_dir):
+        print(f"Loading pretrained E2C weights from {e2c_dir}...")
+        lane_shaper.e2c_main.load_state_dict(torch.load(f"{e2c_dir}/e2c_front.pt", map_location=device))
+        lane_shaper.e2c_wrist.load_state_dict(torch.load(f"{e2c_dir}/e2c_wrist.pt", map_location=device))
+        lane_shaper.e2c_main.train()
+        lane_shaper.e2c_wrist.train()
+        
+        # Unfreeze E2C weights (freeze_e2c flag controls whether update_e2c is called)
+        for p in lane_shaper.e2c_main.parameters(): p.requires_grad = True
+        for p in lane_shaper.e2c_wrist.parameters(): p.requires_grad = True
+        
+        lane_shaper.initialized = True
+        lane_shaper.initialize_demos()
+        print(f"Pretrained E2C weights loaded. freeze_e2c={cfg.algo.freeze_e2c}")
+    else:
+        print(f"[WARN] E2C dir not found: {e2c_dir}. Training E2C from scratch.")
             
     print("LaNERewardShaper initialized.")
 
@@ -1216,7 +1220,7 @@ def main(cfg: ResidualTD3DexmgConfig):
         training_cum_time += time.time() - iter_start
         
         # Periodically train E2C and re-sync the demo cache
-        if lane_shaper is not None and global_step > 0 and global_step % 300 == 0:
+        if lane_shaper is not None and not cfg.algo.freeze_e2c and global_step > 0 and global_step % 300 == 0:
             e2c_metrics = lane_shaper.update_e2c(num_updates=1000, mse_tol=0.2)
             if 'metrics' in locals():
                 metrics.update(e2c_metrics)

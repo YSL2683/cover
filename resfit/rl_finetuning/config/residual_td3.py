@@ -71,6 +71,9 @@ class ResidualTD3AlgoConfig(RLPDAlgoConfig):
     # Progressive clipping schedule for the residual actions
     # I.e., starts clipping linearly from 0 to action scale over progressive_clipping_steps steps
     progressive_clipping_steps: int = 0
+    
+    # Whether to freeze E2C latent space encoder during residual RL (skip update_e2c)
+    freeze_e2c: bool = True
 
 
 # -----------------------------------------------------------------------------
@@ -112,9 +115,15 @@ class ResidualTD3DexmgConfig(RLPDDexmgConfig):
     )
 
     # ------------------------------------------------------------------
-    # Base policy
+    # Base policy (path to pretrained LeRobot policy directory)
     # ------------------------------------------------------------------
+    base_policy_path: str = "REQUIRED"  # Must be set via CLI or shell script
     base_policy: BasePolicyConfig = field(default_factory=BasePolicyConfig)
+
+    # ------------------------------------------------------------------
+    # Pretrained E2C encoder directory (contains e2c_front.pt, e2c_wrist.pt)
+    # ------------------------------------------------------------------
+    e2c_dir: str = "/home/moai/ysl_ws/cover/lane/pretrained_e2c/lift"
 
     # ------------------------------------------------------------------
     # Weights & Biases logging

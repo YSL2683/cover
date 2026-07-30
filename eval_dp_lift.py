@@ -7,10 +7,11 @@ from resfit.lerobot.utils.load_policy import load_policy
 from pathlib import Path
 import imageio
 
-def eval_policy(policy_path, n_episodes=20, max_steps=150, video_path="eval_video.mp4"):
+def eval_policy(policy_path, n_episodes=20, max_steps=150, video_path="eval_video.mp4", cube_range=0.025):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
     print(f"Loading policy from {policy_path}...")
+    print(f"Evaluating with cube range [-{cube_range}, {cube_range}] ({(cube_range*2*100):.1f}cm x {(cube_range*2*100):.1f}cm)")
     policy = load_policy(Path(policy_path))
     policy.eval()
     policy.to(device)
@@ -21,7 +22,7 @@ def eval_policy(policy_path, n_episodes=20, max_steps=150, video_path="eval_vide
         env_name="Lift",
         robots="Panda",
         controller_configs=config,
-        has_renderer=True,
+        has_renderer=False,
         has_offscreen_renderer=True,
         control_freq=10,
         horizon=max_steps,
@@ -40,11 +41,10 @@ def eval_policy(policy_path, n_episodes=20, max_steps=150, video_path="eval_vide
         obs = env.reset()
         env.sim.forward()
         
-        # Override initial position to be exactly in the 5cm ID region
+        # Override initial position
         cube_joint = env.cube.joints[0]
-        # x, y in [0.025, 0.075] for x (OOD_pos), [-0.025, 0.025] for y
-        cube_x = np.random.uniform(0.025, 0.075)
-        cube_y = np.random.uniform(-0.025, 0.025)
+        cube_x = np.random.uniform(-cube_range, cube_range)
+        cube_y = np.random.uniform(-cube_range, cube_range)
         
         qpos = env.sim.data.get_joint_qpos(cube_joint)
         qpos[0] = cube_x
@@ -95,7 +95,7 @@ def eval_policy(policy_path, n_episodes=20, max_steps=150, video_path="eval_vide
                 # Actually, success in robosuite is when the object is lifted
                 pass
             
-            env.render()
+            # env.render()
                 
             # Better success check: require 5 consecutive frames of success
             if env._check_success():
@@ -129,5 +129,6 @@ if __name__ == "__main__":
     parser.add_argument("--policy_path", type=str, required=True)
     parser.add_argument("--n_episodes", type=int, default=20)
     parser.add_argument("--video_path", type=str, default="eval_video.mp4")
+    parser.add_argument("--cube_range", type=float, default=0.025)
     args = parser.parse_args()
-    eval_policy(args.policy_path, args.n_episodes, video_path=args.video_path)
+    eval_policy(args.policy_path, args.n_episodes, video_path=args.video_path, cube_range=args.cube_range)
