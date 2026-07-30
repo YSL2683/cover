@@ -244,8 +244,8 @@ class LaNERewardShaper:
         self.initialized = True
 
     def shape_reward(self, batch, step):
-        if self.p_reward == 0:
-            return batch
+        if self.p_reward == 0 or self.reward_type.lower() == "none":
+            return {}
             
         if not self.initialized:
             self.initialize_demos()

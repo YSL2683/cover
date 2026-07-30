@@ -270,7 +270,7 @@ def main(cfg: ResidualTD3DexmgConfig):
 
     # Load dataset and get normalization functions early
     print("Loading dataset and setting up normalization...")
-    dataset = LeRobotDataset(cfg.offline_data.name, root=REPO_ROOT / "resfit/my_lerobot_data")
+    dataset = LeRobotDataset(cfg.offline_data.name, root=REPO_ROOT / "resfit/my_lerobot_data", local_files_only=True)
 
     # Create action scaler from dataset statistics
     action_scaler = ActionScaler.from_dataset_stats(
@@ -1135,6 +1135,17 @@ def main(cfg: ResidualTD3DexmgConfig):
                 if current_success_rate > best_eval_success_rate:
                     print(f"🎉 New best success rate: {current_success_rate:.4f} (prev: {best_eval_success_rate:.4f})")
                     best_eval_success_rate = current_success_rate
+                    
+                    # Actually save the best model to disk
+                    best_ckpt_path = model_save_dir / "agent_best.pt"
+                    torch.save(agent.state_dict(), best_ckpt_path)
+                    
+                    if lane_shaper is not None:
+                        e2c_main_path = model_save_dir / "e2c_main_best.pt"
+                        torch.save(lane_shaper.e2c_main.state_dict(), e2c_main_path)
+                        e2c_wrist_path = model_save_dir / "e2c_wrist_best.pt"
+                        torch.save(lane_shaper.e2c_wrist.state_dict(), e2c_wrist_path)
+                    print(f"Saved new best model to {best_ckpt_path}")
                 
                 # Log eval metrics to Tensorboard
                 for k, v in eval_metrics.items():
