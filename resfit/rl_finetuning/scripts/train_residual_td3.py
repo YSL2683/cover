@@ -267,7 +267,7 @@ def main(cfg: ResidualTD3DexmgConfig):
 
     # Load dataset and get normalization functions early
     print("Loading dataset and setting up normalization...")
-    dataset = LeRobotDataset(cfg.offline_data.name, root=REPO_ROOT / f"resfit/my_lerobot_data/{cfg.offline_data.name}")
+    dataset = LeRobotDataset(cfg.offline_data.name, root=REPO_ROOT / "resfit/my_lerobot_data")
 
     # Create action scaler from dataset statistics
     action_scaler = ActionScaler.from_dataset_stats(
@@ -1228,6 +1228,12 @@ def main(cfg: ResidualTD3DexmgConfig):
         if getattr(cfg, "checkpoint_interval", -1) > 0 and global_step % cfg.checkpoint_interval == 0:
             ckpt_path = model_save_dir / f"agent_{global_step}.pt"
             torch.save(agent.state_dict(), ckpt_path)
+            
+            if lane_shaper is not None:
+                e2c_main_path = model_save_dir / f"e2c_main_{global_step}.pt"
+                torch.save(lane_shaper.e2c_main.state_dict(), e2c_main_path)
+                e2c_wrist_path = model_save_dir / f"e2c_wrist_{global_step}.pt"
+                torch.save(lane_shaper.e2c_wrist.state_dict(), e2c_wrist_path)
             print(f"Saved checkpoint to {ckpt_path}")
             
         if global_step % cfg.log_freq == 0:

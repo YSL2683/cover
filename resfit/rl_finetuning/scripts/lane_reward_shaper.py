@@ -464,5 +464,7 @@ class LaNERewardShaper:
                 "lane/rem_t_main_avg": rem_t_m.mean(),
                 "lane/rem_t_main_hist": wandb.Histogram(rem_t_m),
                 "lane/rem_t_wrist_avg": rem_t_w.mean(),
-                "lane/rem_t_wrist_hist": wandb.Histogram(rem_t_w)
+                "lane/rem_t_wrist_hist": wandb.Histogram(rem_t_w),
+                "lane/ref_one_step_dist_main": self.ref_one_step_dist_main,
+                "lane/ref_one_step_dist_wrist": self.ref_one_step_dist_wrist
             }

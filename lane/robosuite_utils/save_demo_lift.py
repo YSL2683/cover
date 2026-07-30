@@ -22,8 +22,8 @@ env = suite.make(
     camera_heights=128,
     camera_widths=128,
     control_freq=10,
-    horizon=40,
-    has_renderer=True,
+    horizon=60,
+    has_renderer=False,
     has_offscreen_renderer=True,
     render_camera="frontview",
 )
@@ -78,7 +78,9 @@ while successful_demos < NUM_DEMOS:
         action = np.zeros(7)
 
         if stage == 0:
-            action[:3] = cube_pos - gripper_pos
+            target_pos = cube_pos.copy()
+            target_pos[2] += 0.05 # Hover above the cube
+            action[:3] = target_pos - gripper_pos
             action[-1] = -1
             
             # Align Gripper Yaw to Cube Yaw
@@ -94,22 +96,41 @@ while successful_demos < NUM_DEMOS:
             # Cube is symmetric every 90 degrees (pi/2)
             yaw_error = (yaw_error + np.pi/4) % (np.pi/2) - np.pi/4
             
-            # OSC_POSE uses action[3:6] as angular velocity (axis-angle)
-            action[5] = yaw_error * 5.0 # P-control for yaw alignment
+            action[5] = yaw_error * 5.0
             
             if (action[:3] ** 2).sum() < 0.0001 and abs(yaw_error) < 0.05:
                 stage = 1
             action[:3] *= 10
 
-        if stage == 1:
+        elif stage == 1:
+            target_pos = cube_pos.copy()
+            action[:3] = target_pos - gripper_pos
+            action[-1] = -1
+            
+            # Maintain alignment
+            from scipy.spatial.transform import Rotation as R
+            cube_quat = env.sim.data.body_xquat[env.cube_body_id]
+            cube_quat_xyzw = np.array([cube_quat[1], cube_quat[2], cube_quat[3], cube_quat[0]])
+            cube_yaw = R.from_quat(cube_quat_xyzw).as_euler('xyz', degrees=False)[2]
+            gripper_quat_xyzw = obs["robot0_eef_quat"]
+            gripper_yaw = R.from_quat(gripper_quat_xyzw).as_euler('xyz', degrees=False)[2]
+            yaw_error = cube_yaw - gripper_yaw
+            yaw_error = (yaw_error + np.pi/4) % (np.pi/2) - np.pi/4
+            action[5] = yaw_error * 5.0
+            
+            if (action[:3] ** 2).sum() < 0.0001:
+                stage = 2
+            action[:3] *= 10
+
+        elif stage == 2:
             action[:] = 0
             action[-1] = 1
             stage_counter += 1
-            if stage_counter == 3:
-                stage = 2
+            if stage_counter == 5:
+                stage = 3
                 stage_counter = 0
 
-        if stage == 2:
+        elif stage == 3:
             action[:] = 0
             action[2] = 0.25
             action[-1] = 1
@@ -124,7 +145,7 @@ while successful_demos < NUM_DEMOS:
         ep_states.append(state)
 
         next_obs, r, d, info = env.step(action)
-        env.render()
+        # env.render()
         
         next_img_obs = np.concatenate(
             [
