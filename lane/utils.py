@@ -6,7 +6,6 @@ from collections import deque
 import random
 from torch.utils.data import Dataset
 from torch import nn
-from lane.data_augs import random_crop
 
 
 class eval_mode(object):
@@ -194,8 +193,8 @@ class ReplayBuffer(Dataset):
         obs_non_crop = self.obses[idxes]
         next_obs_non_crop = self.next_obses[idxes]
 
-        obses = random_crop(obs_non_crop)
-        next_obses = random_crop(next_obs_non_crop)
+        obses = obs_non_crop
+        next_obses = next_obs_non_crop
 
         obses, actions, rewards, next_obses, not_dones = self.create_tensors(
             obses,

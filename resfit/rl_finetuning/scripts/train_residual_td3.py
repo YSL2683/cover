@@ -904,10 +904,14 @@ def main(cfg: ResidualTD3DexmgConfig):
 
     print("Initializing LaNERewardShaper...")
     lane_shaper = LaNERewardShaper(
-        device, action_dim, offline_rb, 
+        device, action_dim, offline_rb, online_rb=online_rb,
         p_reward=1.0, 
         action_l2_reg_weight=cfg.agent.actor.action_l2_reg_weight,
-        reward_type=getattr(cfg.algo, "reward_type", "reward_2")
+        reward_type=getattr(cfg.algo, "reward_type", "reward_3"),
+        beta=getattr(cfg.algo, "reward_beta", 0.5),
+        alpha=getattr(cfg.algo, "reward_alpha", 0.98),
+        w_m=getattr(cfg.algo, "reward_w_m", 0.3),
+        w_w=getattr(cfg.algo, "reward_w_w", 0.7)
     )
     lane_shaper.precompute_offline_dino()
     lane_shaper.precompute_online_dino(online_rb)
@@ -917,18 +921,18 @@ def main(cfg: ResidualTD3DexmgConfig):
         e2c_dir = "/home/moai/ysl_ws/cover/lane/pretrained_e2c/lift"
         if os.path.exists(e2c_dir):
             print(f"Loading pretrained E2C weights from {e2c_dir}...")
-            lane_shaper.e2c_front.load_state_dict(torch.load(f"{e2c_dir}/e2c_front.pt", map_location=device))
+            lane_shaper.e2c_main.load_state_dict(torch.load(f"{e2c_dir}/e2c_front.pt", map_location=device))
             lane_shaper.e2c_wrist.load_state_dict(torch.load(f"{e2c_dir}/e2c_wrist.pt", map_location=device))
-            lane_shaper.e2c_front.eval()
-            lane_shaper.e2c_wrist.eval()
+            lane_shaper.e2c_main.train()
+            lane_shaper.e2c_wrist.train()
             
-            # Freeze E2C weights
-            for p in lane_shaper.e2c_front.parameters(): p.requires_grad = False
-            for p in lane_shaper.e2c_wrist.parameters(): p.requires_grad = False
+            # Unfreeze E2C weights
+            for p in lane_shaper.e2c_main.parameters(): p.requires_grad = True
+            for p in lane_shaper.e2c_wrist.parameters(): p.requires_grad = True
             
             lane_shaper.initialized = True
             lane_shaper.initialize_demos()
-            print("Pretrained E2C weights loaded and frozen.")
+            print("Pretrained E2C weights loaded and set to train mode.")
             
     print("LaNERewardShaper initialized.")
 
@@ -1210,6 +1214,13 @@ def main(cfg: ResidualTD3DexmgConfig):
                 i += 1
 
         training_cum_time += time.time() - iter_start
+        
+        # Periodically train E2C and re-sync the demo cache
+        if lane_shaper is not None and global_step > 0 and global_step % 300 == 0:
+            e2c_metrics = lane_shaper.update_e2c(num_updates=1000, mse_tol=0.2)
+            if 'metrics' in locals():
+                metrics.update(e2c_metrics)
+            lane_shaper.initialize_demos()
 
         # ------------------------------------------------------------------
         # (6) Logging -------------------------------------------------------

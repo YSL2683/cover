@@ -3,9 +3,31 @@ import numpy as np
 from torch.utils.data import DataLoader, TensorDataset
 import os
 import sys
+import torchvision.transforms as T
 
 # Import MLPE2C from LaNE
 from e2c import MLPE2C
+
+def random_crop(images, output_size=112):
+    """
+    images: tensor shape (B, C, H, W)
+    """
+    n, c, h, w = images.shape
+    crop_max = h - output_size + 1
+    w1 = torch.randint(0, crop_max, (n,))
+    h1 = torch.randint(0, crop_max, (n,))
+    cropped = torch.empty((n, c, output_size, output_size), dtype=images.dtype, device=images.device)
+    for i, (image, w11, h11) in enumerate(zip(images, w1, h1)):
+        cropped[i] = image[:, h11 : h11 + output_size, w11 : w11 + output_size]
+    return cropped
+
+def center_crop(images, output_size=112):
+    n, c, h, w = images.shape
+    assert h >= output_size
+    top = (h - output_size) // 2
+    left = (w - output_size) // 2
+    return images[:, :, top : top + output_size, left : left + output_size]
+
 
 def load_demos(demo_dir):
     # Load .pt payload
@@ -17,58 +39,39 @@ def load_demos(demo_dir):
     pt_path = os.path.join(demo_dir, pt_files[0])
     payload = torch.load(pt_path, weights_only=False)
     
-    obs_list = payload[0]      # [N, 6, 128, 128]
-    next_obs_list = payload[1] # [N, 6, 128, 128]
+    obs_list = payload[0]      # [N, 6, 128, 128] uint8
+    next_obs_list = payload[1] # [N, 6, 128, 128] uint8
     action_list = torch.tensor(payload[2], dtype=torch.float32)   # [N, action_dim]
     
     # Load demo_starts and demo_ends
     demo_starts = np.load(os.path.join(demo_dir, "demo_starts.npy"))
     demo_ends = np.load(os.path.join(demo_dir, "demo_ends.npy"))
     
-    return obs_list, next_obs_list, action_list, demo_starts, demo_ends
+    return torch.tensor(obs_list), torch.tensor(next_obs_list), action_list, demo_starts, demo_ends
 
-def extract_dino_features(obs_list, dino, device, batch_size=32):
-    # obs_list is shape [N, C, H, W], uint8 from 0 to 255.
-    # We should convert to float and scale. 
-    # Usually images in LaNE demo are saved. Let's see how DINO is used in LaNE.
-    # In sac.py L720 dino_embed, it converts to float and interpolates to 112 -> 128 -> etc.
-    # Let's assume standard normalization.
+def get_dino_features(images, dino, device, is_training=True):
+    # images: [B, 6, 128, 128] uint8
+    images = images.to(device)
+    if is_training:
+        cropped = random_crop(images, 112)
+    else:
+        cropped = center_crop(images, 112)
+        
+    cropped = cropped.float() / 255.0
     
-    features_front = []
-    features_wrist = []
+    normalize = T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     
-    # Simple normalization / preprocessing matching LaNE
-    # sac.py: preprocess = transforms.Compose([transforms.Resize(pre_transform_image_size), ...])
-    # DINO expects 14-divisible sizes, usually 224 or 128. LaNE uses 112 pre-crop then 112.
+    front = normalize(cropped[:, :3])
+    wrist = normalize(cropped[:, 3:6])
     
-    import torchvision.transforms as T
-    # Simplified DINO transform
-    transform = T.Compose([
-        T.Resize((112, 112)),
-        T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ])
-    
-    dino.eval()
-    
-    N = len(obs_list)
     with torch.no_grad():
-        for i in range(0, N, batch_size):
-            batch = torch.tensor(obs_list[i:i+batch_size], device=device).float() / 255.0
-            front = batch[:, :3]
-            wrist = batch[:, 3:6]
-            
-            front = transform(front)
-            wrist = transform(wrist)
-            
-            feat_f = dino(front)
-            feat_w = dino(wrist)
-            
-            features_front.append(feat_f.cpu())
-            features_wrist.append(feat_w.cpu())
-            
-    return torch.cat(features_front, dim=0), torch.cat(features_wrist, dim=0)
+        feat_f = dino(front)
+        feat_w = dino(wrist)
+        
+    return feat_f, feat_w
 
-def train_e2c(obs_f, obs_w, next_obs_f, next_obs_w, actions, device="cuda", n_iter=5000, mse_tol=1e-2):
+
+def train_e2c(obs, next_obs, actions, dino, device="cuda", n_iter=5000, mse_tol=1e-2):
     action_dim = actions.shape[1]
     
     e2c_front = MLPE2C(obs_shape=(384,), action_dim=action_dim, z_dimension=16).to(device)
@@ -77,7 +80,7 @@ def train_e2c(obs_f, obs_w, next_obs_f, next_obs_w, actions, device="cuda", n_it
     opt_f = torch.optim.Adam(e2c_front.parameters(), lr=1e-4)
     opt_w = torch.optim.Adam(e2c_wrist.parameters(), lr=1e-4)
     
-    dataset = TensorDataset(obs_f, obs_w, actions, next_obs_f, next_obs_w)
+    dataset = TensorDataset(obs, next_obs, actions)
     loader = DataLoader(dataset, batch_size=128, shuffle=True)
     
     print(f"Training E2C (Early stopping if MSE < {mse_tol})...")
@@ -92,10 +95,15 @@ def train_e2c(obs_f, obs_w, next_obs_f, next_obs_w, actions, device="cuda", n_it
         total_loss_f = 0
         total_loss_w = 0
         
-        for b_obs_f, b_obs_w, b_act, b_nobs_f, b_nobs_w in loader:
-            b_obs_f, b_obs_w = b_obs_f.to(device), b_obs_w.to(device)
+        e2c_front.train()
+        e2c_wrist.train()
+        
+        for b_obs, b_nobs, b_act in loader:
             b_act = b_act.to(device).float()
-            b_nobs_f, b_nobs_w = b_nobs_f.to(device), b_nobs_w.to(device)
+            
+            # Extract features on the fly with random crop
+            b_obs_f, b_obs_w = get_dino_features(b_obs, dino, device, is_training=True)
+            b_nobs_f, b_nobs_w = get_dino_features(b_nobs, dino, device, is_training=True)
             
             dkl_f, mse_f, ref_kl_f, _ = e2c_front(b_obs_f, b_act, b_nobs_f, None, None)
             loss_f = dkl_f + mse_f * 384 + ref_kl_f
@@ -126,7 +134,7 @@ def train_e2c(obs_f, obs_w, next_obs_f, next_obs_w, actions, device="cuda", n_it
             
     return e2c_front, e2c_wrist
 
-def precompute_demo_latents(e2c_front, e2c_wrist, obs_f, obs_w, demo_starts, demo_ends, device="cuda"):
+def precompute_demo_latents(e2c_front, e2c_wrist, obs, dino, demo_starts, demo_ends, device="cuda"):
     e2c_front.eval()
     e2c_wrist.eval()
     
@@ -134,16 +142,27 @@ def precompute_demo_latents(e2c_front, e2c_wrist, obs_f, obs_w, demo_starts, dem
     z_demo_wrist = []
     demo_lengths = []
     
+    batch_size = 32
+    
     with torch.no_grad():
         for start, end in zip(demo_starts, demo_ends):
-            traj_f = obs_f[start:end].to(device)
-            traj_w = obs_w[start:end].to(device)
+            traj_obs = obs[start:end]
             
-            zf, _ = e2c_front.enc(traj_f)
-            zw, _ = e2c_wrist.enc(traj_w)
+            zf_list = []
+            zw_list = []
             
-            z_demo_front.append(zf.unsqueeze(0).cpu())
-            z_demo_wrist.append(zw.unsqueeze(0).cpu())
+            for i in range(0, len(traj_obs), batch_size):
+                b_obs = traj_obs[i:i+batch_size]
+                feat_f, feat_w = get_dino_features(b_obs, dino, device, is_training=False) # center crop
+                
+                zf, _ = e2c_front.enc(feat_f)
+                zw, _ = e2c_wrist.enc(feat_w)
+                
+                zf_list.append(zf.cpu())
+                zw_list.append(zw.cpu())
+                
+            z_demo_front.append(torch.cat(zf_list, dim=0).unsqueeze(0))
+            z_demo_wrist.append(torch.cat(zw_list, dim=0).unsqueeze(0))
             demo_lengths.append(end - start)
             
     return z_demo_front, z_demo_wrist, demo_lengths
@@ -158,15 +177,13 @@ if __name__ == "__main__":
     
     print("Loading DINOv2...")
     dino = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14_reg").to(device)
+    dino.eval()
     
-    print("Extracting DINO features...")
-    obs_f, obs_w = extract_dino_features(obs, dino, device)
-    next_obs_f, next_obs_w = extract_dino_features(next_obs, dino, device)
+    print("Training E2C with on-the-fly random crop augmentation...")
+    e2c_f, e2c_w = train_e2c(obs, next_obs, actions, dino, device=device, n_iter=1000)
     
-    e2c_f, e2c_w = train_e2c(obs_f, obs_w, next_obs_f, next_obs_w, actions, device=device, n_iter=1000)
-    
-    print("Precomputing demo latents...")
-    z_df, z_dw, t_lens = precompute_demo_latents(e2c_f, e2c_w, obs_f, obs_w, starts, ends, device)
+    print("Precomputing demo latents (with center crop)...")
+    z_df, z_dw, t_lens = precompute_demo_latents(e2c_f, e2c_w, obs, dino, starts, ends, device)
     
     print("Saving artifacts...")
     save_dir = os.path.join(SCRIPT_DIR, "pretrained_e2c/lift")
