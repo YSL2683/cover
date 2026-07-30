@@ -270,7 +270,7 @@ def main(cfg: ResidualTD3DexmgConfig):
 
     # Load dataset and get normalization functions early
     print("Loading dataset and setting up normalization...")
-    dataset = LeRobotDataset(cfg.offline_data.name, root=REPO_ROOT / "resfit/my_lerobot_data", local_files_only=True)
+    dataset = LeRobotDataset(cfg.offline_data.name, root=REPO_ROOT / "resfit/my_lerobot_data")
 
     # Create action scaler from dataset statistics
     action_scaler = ActionScaler.from_dataset_stats(

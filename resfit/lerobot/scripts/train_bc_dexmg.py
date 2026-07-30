@@ -427,7 +427,7 @@ def main(cfg: argparse.Namespace):
     # Dataset (metadata first, then actual dataset with resolved timestamps)
     # ---------------------------------------------------------------------
     logger.info("Fetching dataset metadata from the Hub…")
-    ds_meta = LeRobotDatasetMetadata(cfg.dataset, root=_CACHE_ROOT, local_files_only=True)
+    ds_meta = LeRobotDatasetMetadata(cfg.dataset, root=_CACHE_ROOT)
 
     # ---------------------------------------------------------------------
     # Build the policy configuration, applying any CLI-specified overrides
@@ -550,7 +550,6 @@ def main(cfg: argparse.Namespace):
         delta_timestamps=delta_timestamps,
         download_videos=True,
         image_transforms=image_transforms,
-        local_files_only=True,
     )
 
     # ---------------------------------------------------------------------
