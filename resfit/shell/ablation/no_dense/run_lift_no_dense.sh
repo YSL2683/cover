@@ -37,6 +37,8 @@ rm -rf /home/moai/ysl_ws/cover/scratch/online/* /home/moai/ysl_ws/cover/scratch/
 export PYTHONUNBUFFERED=1
 export PYTHONPATH=/home/moai/ysl_ws/cover:$PYTHONPATH
 export CACHE_DIR=/home/moai/ysl_ws/cover/scratch
+export HF_HUB_OFFLINE=1
+export LEROBOT_OFFLINE=1
 
 # Run training
 python resfit/rl_finetuning/scripts/train_residual_td3.py \
