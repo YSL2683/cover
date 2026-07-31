@@ -1,5 +1,5 @@
 #!/bin/bash
-# Script to run Residual TD3 with configurable reward shaping parameters
+# Script to run Residual TD3 with configurable reward shaping parameters and OOD range of 0.1
 
 # Default parameters (can be overridden by command line arguments)
 REWARD_TYPE="reward_2"
@@ -13,10 +13,10 @@ BASE_POLICY_PATH="resfit/my_lerobot_data/bc_run_2026-07-30_16-20-35_lane_lift_id
 E2C_DIR="/home/moai/ysl_ws/cover/lane/pretrained_e2c/lift"
 
 # Name for Weights & Biases
-WANDB_NAME="reward2_beta${BETA}_freeze"
+WANDB_NAME="reward2_beta${BETA}_freeze_ood_0.1"
 
 # Parse command line arguments if provided
-# Example: ./run_lift.sh --beta 0.1 --reward_type reward_2
+# Example: ./run_lift_ood_0.1.sh --beta 0.1 --reward_type reward_2
 while [[ "$#" -gt 0 ]]; do
     case $1 in
         --reward_type) REWARD_TYPE="$2"; shift ;;
@@ -35,7 +35,7 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 echo "=================================================="
-echo "Starting Residual TD3 Training"
+echo "Starting Residual TD3 Training (OOD 0.1)"
 echo "Reward Type     : $REWARD_TYPE"
 echo "Beta            : $BETA"
 echo "Alpha           : $ALPHA"
@@ -58,6 +58,9 @@ export CACHE_DIR=/home/moai/ysl_ws/cover/scratch
 export HF_HUB_OFFLINE=1
 export LEROBOT_OFFLINE=1
 
+# OOD Initialization Range (0.1 means +/- 10cm, effectively 20x20cm range)
+export OOD_RANGE="0.1"
+
 # Run training
 python resfit/rl_finetuning/scripts/train_residual_td3.py \
     task="Lift" \
@@ -74,4 +77,3 @@ python resfit/rl_finetuning/scripts/train_residual_td3.py \
     base_policy_path="${BASE_POLICY_PATH}" \
     e2c_dir="${E2C_DIR}" \
     eval_interval_every_steps=2000
-
