@@ -243,6 +243,51 @@ class LaNERewardShaper:
         self.ref_one_step_dist_wrist = np.mean(one_step_dist_list_wrist)
         self.initialized = True
 
+    def _compute_potential(self, dino_tensor):
+        """Computes the visual potential function Phi(s) for a batch of DINO embeddings."""
+        dino_m, dino_w = dino_tensor[:, :384], dino_tensor[:, 384:]
+        
+        z_pred_m = self.e2c_main.enc(dino_m)[0].unsqueeze(1).detach().cpu().numpy()
+        z_pred_w = self.e2c_wrist.enc(dino_w)[0].unsqueeze(1).detach().cpu().numpy()
+        
+        N = len(dino_tensor)
+        min_dist_m = np.ones(N) * 10000
+        min_dist_w = np.ones(N) * 10000
+        idx_m_best = np.zeros(N)
+        idx_w_best = np.zeros(N)
+        T_demos_m = np.zeros(N)
+        T_demos_w = np.zeros(N)
+        
+        for i in range(len(self.demo_starts)):
+            z_demo_m = self.z_demo_main_cache[i]
+            z_dist_m = ((z_demo_m - z_pred_m) ** 2).sum(axis=2)
+            z_dist_min_m = z_dist_m.min(axis=1)
+            update_min_m = z_dist_min_m < min_dist_m
+            min_dist_m[update_min_m] = z_dist_min_m[update_min_m]
+            idx_m_best[update_min_m] = z_dist_m.argmin(axis=1)[update_min_m]
+            T_demos_m[update_min_m] = z_dist_m.shape[1]
+            
+            z_demo_w = self.z_demo_wrist_cache[i]
+            z_dist_w = ((z_demo_w - z_pred_w) ** 2).sum(axis=2)
+            z_dist_min_w = z_dist_w.min(axis=1)
+            update_min_w = z_dist_min_w < min_dist_w
+            min_dist_w[update_min_w] = z_dist_min_w[update_min_w]
+            idx_w_best[update_min_w] = z_dist_w.argmin(axis=1)[update_min_w]
+            T_demos_w[update_min_w] = z_dist_w.shape[1]
+            
+        gamma_m = self.beta / ((self.ref_one_step_dist_main ** 2) + 1e-8)
+        gamma_w = self.beta / ((self.ref_one_step_dist_wrist ** 2) + 1e-8)
+        
+        S_main = np.exp(-gamma_m * (min_dist_m ** 2))
+        S_wrist = np.exp(-gamma_w * (min_dist_w ** 2))
+        
+        rem_t_m = T_demos_m - idx_m_best
+        rem_t_w = T_demos_w - idx_w_best
+        
+        Phi = (self.w_m * np.power(self.alpha, rem_t_m) * S_main) + (self.w_w * np.power(self.alpha, rem_t_w) * S_wrist)
+        
+        return Phi, S_main, S_wrist
+
     def shape_reward(self, batch, step):
         if self.p_reward == 0 or self.reward_type.lower() == "none":
             return {}
@@ -403,4 +448,52 @@ class LaNERewardShaper:
                 "lane/rem_t_wrist_hist": wandb.Histogram(rem_t_w),
                 "lane/ref_one_step_dist_main": self.ref_one_step_dist_main,
                 "lane/ref_one_step_dist_wrist": self.ref_one_step_dist_wrist
+            }
+            
+        elif self.reward_type == "reward_pbrs":
+            # -------------------------------------------------------------
+            # Potential-Based Reward Shaping (PBRS)
+            # F(s, a, s') = gamma * Phi(s') - Phi(s)
+            # -------------------------------------------------------------
+            # 1. Compute Potential for s' (next state)
+            Phi_next, S_main_next, S_wrist_next = self._compute_potential(batch["next", "dino"])
+            
+            # 2. Compute Potential for s (current state)
+            Phi_curr, S_main_curr, S_wrist_curr = self._compute_potential(batch["dino"])
+            
+            # 3. PBRS Difference (gamma = 0.99)
+            # Apply terminal masking: Phi(s_{terminal}) = 0
+            # batch["nonterminal"] is True when episode is ongoing, False when done.
+            gamma_env = 0.99
+            nonterminal_mask = batch["nonterminal"].squeeze().detach().cpu().numpy()
+            
+            r_dense = (gamma_env * Phi_next * nonterminal_mask - Phi_curr) * self.p_reward
+            
+            # Add PBRS dense reward to batch
+            add_rew = torch.as_tensor(r_dense, device=self.device, dtype=torch.float32).view(batch["next", "reward"].shape)
+            batch["next", "reward"] += add_rew
+            
+            # 4. Action regularization term (using S_next as reference for ID boundary)
+            action_l2_penalty_mean = 0.0
+            if self.action_l2_reg_weight > 0:
+                a_total = batch["action"]
+                a_base = batch["obs", "observation.base_action"]
+                a_res = a_total - a_base
+                action_l2 = (a_res ** 2).sum(dim=-1)
+                
+                S_joint = torch.as_tensor(S_main_next * S_wrist_next, device=self.device, dtype=torch.float32)
+                r_reg = self.action_l2_reg_weight * S_joint * action_l2
+                r_reg = r_reg.view(batch["next", "reward"].shape)
+                
+                batch["next", "reward"] -= r_reg
+                action_l2_penalty_mean = r_reg.mean().item()
+                
+            return {
+                "lane/Phi_next_avg": Phi_next.mean(),
+                "lane/Phi_curr_avg": Phi_curr.mean(),
+                "lane/PBRS_dense_avg": r_dense.mean(),
+                "lane/PBRS_dense_hist": wandb.Histogram(r_dense),
+                "lane/S_main_next_avg": S_main_next.mean(),
+                "lane/S_wrist_next_avg": S_wrist_next.mean(),
+                "lane/action_l2_penalty": action_l2_penalty_mean,
             }
