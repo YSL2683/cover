@@ -90,6 +90,7 @@ class RobosuiteGymWrapper:
         camera_size: int = 84,
         render_size: tuple[int, int] | int | None = None,
         env_id: int = 0,
+        env_modifier_config=None,
     ):
         # ------------------------------------------------------------------
         # Allow common aliases used in the Robomimic literature.
@@ -211,23 +212,9 @@ class RobosuiteGymWrapper:
 
         self.env: ManipulationEnv = robosuite.make(**env_kwargs)
         
-        # Inject custom sampler for the experiment AFTER env creation
-        if os.environ.get("EXPERIMENT_MODE") == "OOD_pos":
-            try:
-                sampler = self.env.placement_initializer
-                if hasattr(sampler, "samplers"):
-                    samplers = sampler.samplers
-                    sampler = samplers.get("ObjectSampler")
-                    if sampler is None and len(samplers) > 0:
-                        sampler = list(samplers.values())[0]
-                
-                if sampler is not None:
-                    ood_range = float(os.environ.get("OOD_RANGE", "0.05"))
-                    sampler.x_range = [-ood_range, ood_range]
-                    sampler.y_range = [-ood_range, ood_range]
-                    logger.debug(f"Set OOD placement range to ±{ood_range}m")
-            except Exception as e:
-                logger.warning(f"Failed to set OOD placement sampler: {e}")
+        self.env_modifier_config = env_modifier_config
+        self._wrap_load_model()
+        self._apply_env_modifiers()
 
         logger.debug(
             f"Successfully created {env_name} environment via robosuite.make() "
@@ -241,6 +228,38 @@ class RobosuiteGymWrapper:
 
         # Define action and observation spaces after environment creation
         self._setup_spaces()
+
+    def _wrap_load_model(self):
+        """Wraps the internal _load_model to re-apply modifiers after Robosuite rebuilds the scene."""
+        original_load_model = self.env._load_model
+        
+        def custom_load_model(*args, **kwargs):
+            original_load_model(*args, **kwargs)
+            self._apply_env_modifiers()
+            
+        self.env._load_model = custom_load_model
+
+    def _apply_env_modifiers(self):
+        """Applies extensible OOD configurations to the underlying robosuite environment."""
+        if getattr(self, "env_modifier_config", None) is None or self.env_modifier_config.mode == "default":
+            return
+            
+        if self.env_modifier_config.mode == "ood_position":
+            try:
+                sampler = self.env.placement_initializer
+                if hasattr(sampler, "samplers"):
+                    samplers = sampler.samplers
+                    sampler = samplers.get("ObjectSampler")
+                    if sampler is None and len(samplers) > 0:
+                        sampler = list(samplers.values())[0]
+                
+                if sampler is not None:
+                    bounds = self.env_modifier_config.ood_position
+                    sampler.x_range = list(bounds.x_bounds)
+                    sampler.y_range = list(bounds.y_bounds)
+                    logger.debug(f"Applied OOD Position Bounds: x={bounds.x_bounds}, y={bounds.y_bounds}")
+            except Exception as e:
+                logger.warning(f"Failed to apply OOD position modifiers: {e}")
 
     def _setup_spaces(self):
         """Setup observation and action spaces for Gymnasium compatibility."""
@@ -561,6 +580,7 @@ def make_dexmimicgen_env(
     render_size: tuple[int, int] | int | None = None,
     render_gpu_device_id: int = 0,
     env_id: int = 0,
+    env_modifier_config=None,
 ):
     """Factory function to create a DexMimicGen environment for vectorization."""
 
@@ -572,6 +592,7 @@ def make_dexmimicgen_env(
             camera_size=camera_size,
             render_size=render_size,
             env_id=env_id,
+            env_modifier_config=env_modifier_config,
         )
 
     return _make
@@ -647,6 +668,7 @@ def create_vectorized_env(
     render_size: tuple[int, int] | int | None = None,
     debug: bool = False,
     video_key: str = "observation.images.agentview",
+    env_modifier_config=None,
 ) -> VectorizedEnvWrapper:
     """Create vectorized environment using Gymnasium's vector environments."""
 
@@ -670,7 +692,7 @@ def create_vectorized_env(
             render_gpu_device_id = visible_device_ids[env_id % num_visible_gpus]
         else:
             render_gpu_device_id = visible_device_ids[0] if visible_device_ids else 0
-        env_fns.append(make_dexmimicgen_env(env_name, camera_size, render_size, render_gpu_device_id, env_id))
+        env_fns.append(make_dexmimicgen_env(env_name, camera_size, render_size, render_gpu_device_id, env_id, env_modifier_config))
 
     if debug:
         # Use synchronous vectorized environment for debugging

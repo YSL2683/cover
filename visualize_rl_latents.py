@@ -95,14 +95,28 @@ def visualize_analysis(rl_latent_path, script_dir):
         f_rl_2d = pca_f.transform(all_z_f_rl)
         w_rl_2d = pca_w.transform(all_z_w_rl)
     
+    # --- Extract Goal States ---
+    goal_f_demo = np.stack([z.squeeze(0).numpy()[-1] for z in z_f_demo], axis=0)
+    goal_w_demo = np.stack([z.squeeze(0).numpy()[-1] for z in z_w_demo], axis=0)
+    goal_f_demo_2d = pca_f.transform(goal_f_demo)
+    goal_w_demo_2d = pca_w.transform(goal_w_demo)
+    
+    if num_rl > 0:
+        goal_f_rl = np.stack([z.squeeze(0).numpy()[-1] for z in z_f_rl], axis=0)
+        goal_w_rl = np.stack([z.squeeze(0).numpy()[-1] for z in z_w_rl], axis=0)
+        goal_f_rl_2d = pca_f.transform(goal_f_rl)
+        goal_w_rl_2d = pca_w.transform(goal_w_rl)
+    
     # --- 1. PCA Scatter Plot ---
     plt.figure(figsize=(14, 6))
     
     ax1 = plt.subplot(1, 2, 1)
     ax1.set_title("Front Camera (PCA projected on ID variance)")
     ax1.scatter(f_demo_2d[:, 0], f_demo_2d[:, 1], color='darkorange', s=20, alpha=0.6, label='ID Demo')
+    ax1.scatter(goal_f_demo_2d[:, 0], goal_f_demo_2d[:, 1], color='orange', marker='*', s=150, zorder=5, edgecolors='k', label='ID Goal')
     if num_rl > 0:
         ax1.scatter(f_rl_2d[:, 0], f_rl_2d[:, 1], color='darkblue', s=20, alpha=0.6, label='RL Success')
+        ax1.scatter(goal_f_rl_2d[:, 0], goal_f_rl_2d[:, 1], color='navy', marker='*', s=150, zorder=5, edgecolors='k', label='RL Goal')
     ax1.set_xlabel("Principal Component 1")
     ax1.set_ylabel("Principal Component 2")
     ax1.grid(True, alpha=0.3)
@@ -111,8 +125,10 @@ def visualize_analysis(rl_latent_path, script_dir):
     ax2 = plt.subplot(1, 2, 2)
     ax2.set_title("Wrist Camera (PCA projected on ID variance)")
     ax2.scatter(w_demo_2d[:, 0], w_demo_2d[:, 1], color='darkorange', s=20, alpha=0.6, label='ID Demo')
+    ax2.scatter(goal_w_demo_2d[:, 0], goal_w_demo_2d[:, 1], color='orange', marker='*', s=150, zorder=5, edgecolors='k', label='ID Goal')
     if num_rl > 0:
         ax2.scatter(w_rl_2d[:, 0], w_rl_2d[:, 1], color='darkblue', s=20, alpha=0.6, label='RL Success')
+        ax2.scatter(goal_w_rl_2d[:, 0], goal_w_rl_2d[:, 1], color='navy', marker='*', s=150, zorder=5, edgecolors='k', label='RL Goal')
     ax2.set_xlabel("Principal Component 1")
     ax2.set_ylabel("Principal Component 2")
     ax2.grid(True, alpha=0.3)

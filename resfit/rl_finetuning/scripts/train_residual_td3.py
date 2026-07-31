@@ -293,10 +293,11 @@ def main(cfg: ResidualTD3DexmgConfig):
         base_policy: ACTPolicy,
         device: str,
         video_key: str,
-        debug: bool,
-        action_scaler: ActionScaler,
-        state_standardizer: StateStandardizer,
-    ):
+        debug: bool = False,
+        env_modifier_config=None,
+        action_scaler: ActionScaler = None,
+        state_standardizer: StateStandardizer = None,
+    ) -> BasePolicyVecEnvWrapper:
         assert action_scaler is not None, "action_scaler must be provided for consistent normalization"
         assert state_standardizer is not None, "state_standardizer must be provided for consistent normalization"
 
@@ -308,6 +309,7 @@ def main(cfg: ResidualTD3DexmgConfig):
             video_key=video_key,
             debug=debug,
             camera_size=128,
+            env_modifier_config=env_modifier_config,
         )
 
         # Wrap it with the base policy wrapper
@@ -349,6 +351,7 @@ def main(cfg: ResidualTD3DexmgConfig):
         device=device_str,
         video_key=cfg.video_key,
         debug=cfg.debug,
+        env_modifier_config=cfg.env_modifier,
         action_scaler=action_scaler,
         state_standardizer=state_standardizer,
     )
@@ -363,6 +366,7 @@ def main(cfg: ResidualTD3DexmgConfig):
         device=device_str,
         video_key=cfg.video_key,
         debug=cfg.debug,
+        env_modifier_config=cfg.env_modifier,
         action_scaler=action_scaler,
         state_standardizer=state_standardizer,
     )

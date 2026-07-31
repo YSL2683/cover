@@ -250,6 +250,17 @@ class WandBConfig:
 # Top-level experiment config --------------------------------------------------
 # -----------------------------------------------------------------------------
 @dataclass
+class OodPositionConfig:
+    x_bounds: list[float] = field(default_factory=lambda: [-0.05, 0.05])
+    y_bounds: list[float] = field(default_factory=lambda: [-0.05, 0.05])
+
+@dataclass
+class EnvModifierConfig:
+    mode: str = "default"  # e.g., "default", "ood_position", "visual_ood"
+    ood_position: OodPositionConfig = field(default_factory=OodPositionConfig)
+
+
+@dataclass
 class RLPDDexmgConfig:
     # ------------------------------------------------------------------
     # General
@@ -273,6 +284,11 @@ class RLPDDexmgConfig:
             "observation.images.robot0_eye_in_hand",
         ]
     )
+
+    # ------------------------------------------------------------------
+    # Environment Modifiers (OOD configs)
+    # ------------------------------------------------------------------
+    env_modifier: EnvModifierConfig = field(default_factory=EnvModifierConfig)
 
     # ------------------------------------------------------------------
     # Algorithm & optimisation
