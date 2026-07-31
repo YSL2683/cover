@@ -12,7 +12,7 @@ sys.path.append(str(lane_dir))
 from e2c import MLPE2C
 
 class LaNERewardShaper:
-    def __init__(self, device, action_dim, offline_rb, online_rb=None, p_reward=1.0, action_l2_reg_weight=0.0, reward_type="reward_3",
+    def __init__(self, device, action_dim, offline_rb, online_rb=None, p_reward=1.0, action_l2_reg_weight=0.0, reward_type="reward_2",
                  beta=0.5, alpha=0.98, w_m=0.3, w_w=0.7):
         self.device = device
         self.p_reward = p_reward
@@ -286,7 +286,7 @@ class LaNERewardShaper:
         
         Phi = (self.w_m * np.power(self.alpha, rem_t_m) * S_main) + (self.w_w * np.power(self.alpha, rem_t_w) * S_wrist)
         
-        return Phi, S_main, S_wrist
+        return Phi, S_main, S_wrist, min_dist_m, min_dist_w, rem_t_m, rem_t_w
 
     def shape_reward(self, batch, step):
         if self.p_reward == 0 or self.reward_type.lower() == "none":
@@ -456,10 +456,10 @@ class LaNERewardShaper:
             # F(s, a, s') = gamma * Phi(s') - Phi(s)
             # -------------------------------------------------------------
             # 1. Compute Potential for s' (next state)
-            Phi_next, S_main_next, S_wrist_next = self._compute_potential(batch["next", "dino"])
+            Phi_next, S_main_next, S_wrist_next, min_dist_m_next, min_dist_w_next, rem_t_m_next, rem_t_w_next = self._compute_potential(batch["next", "dino"])
             
             # 2. Compute Potential for s (current state)
-            Phi_curr, S_main_curr, S_wrist_curr = self._compute_potential(batch["dino"])
+            Phi_curr, S_main_curr, S_wrist_curr, min_dist_m_curr, min_dist_w_curr, rem_t_m_curr, rem_t_w_curr = self._compute_potential(batch["dino"])
             
             # 3. PBRS Difference (gamma = 0.99)
             # Apply terminal masking: Phi(s_{terminal}) = 0
@@ -491,9 +491,18 @@ class LaNERewardShaper:
             return {
                 "lane/Phi_next_avg": Phi_next.mean(),
                 "lane/Phi_curr_avg": Phi_curr.mean(),
+                "lane/Phi_next_hist": wandb.Histogram(Phi_next),
                 "lane/PBRS_dense_avg": r_dense.mean(),
+                "lane/PBRS_dense_min": r_dense.min(),
+                "lane/PBRS_dense_max": r_dense.max(),
                 "lane/PBRS_dense_hist": wandb.Histogram(r_dense),
                 "lane/S_main_next_avg": S_main_next.mean(),
+                "lane/S_main_next_hist": wandb.Histogram(S_main_next),
                 "lane/S_wrist_next_avg": S_wrist_next.mean(),
+                "lane/S_wrist_next_hist": wandb.Histogram(S_wrist_next),
+                "lane/min_dist_main_next_avg": min_dist_m_next.mean(),
+                "lane/min_dist_wrist_next_avg": min_dist_w_next.mean(),
+                "lane/rem_t_main_next_avg": rem_t_m_next.mean(),
+                "lane/rem_t_wrist_next_avg": rem_t_w_next.mean(),
                 "lane/action_l2_penalty": action_l2_penalty_mean,
             }

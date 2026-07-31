@@ -325,8 +325,15 @@ class RobosuiteGymWrapper:
 
     def reset(self, *, seed=None, options=None):
         """Reset the environment and return initial observation."""
+        if seed is not None:
+            import numpy as np
+            import random
+            import torch
+            np.random.seed(seed)
+            random.seed(seed)
+            torch.manual_seed(seed)
         # Gymnasium interface: reset can accept seed and options
-        # For robosuite environments, we'll ignore these for now
+        # For robosuite environments, we'll ignore options for now
         obs = self.env.reset()
         processed_obs = self._process_obs(obs)
         self._last_obs = processed_obs  # Store for video recording

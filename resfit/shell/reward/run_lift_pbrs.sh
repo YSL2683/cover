@@ -49,6 +49,7 @@ echo "WandB Name      : $WANDB_NAME"
 echo "=================================================="
 
 # Clear scratch memory buffers
+rm -rf /home/moai/ysl_ws/cover/scratch/online_buffer_cache/* /home/moai/ysl_ws/cover/scratch/offline_buffer_cache/*
 rm -rf /home/moai/ysl_ws/cover/scratch/online/* /home/moai/ysl_ws/cover/scratch/offline/*
 
 # Environment variables
@@ -60,6 +61,9 @@ export LEROBOT_OFFLINE=1
 
 # Run training
 python resfit/rl_finetuning/scripts/train_residual_td3.py \
+    env_modifier.mode=ood_position \
+    env_modifier.ood_position.x_bounds="[-0.1, 0.1]" \
+    env_modifier.ood_position.y_bounds="[-0.1, 0.1]" \
     task="Lift" \
     rl_camera="['observation.images.frontview','observation.images.robot0_eye_in_hand']" \
     wandb.project="lift_residual_rl" \

@@ -376,10 +376,9 @@ def main(cfg: ResidualTD3DexmgConfig):
     # LaNERewardShaper at batch training time (offline/shard-level).
 
     # Seed environments explicitly for reproducibility
-    if hasattr(env, "seed"):
-        env.seed(cfg.seed)
-    if hasattr(eval_env, "seed"):
-        eval_env.seed(cfg.seed + 1)  # Use different seed for eval env to avoid correlation
+    # In gymnasium, the correct way is passing seed to reset()
+    env.reset(seed=cfg.seed)
+    eval_env.reset(seed=cfg.seed + 1)
 
     # ---------------------------------------------------------------------
     # Observation / action dimensions -------------------------------------
@@ -464,6 +463,7 @@ def main(cfg: ResidualTD3DexmgConfig):
     # ------------------------------------------------------------------
     online_cache_meta = {
         "task": cfg.task,
+        "env_modifier": OmegaConf.to_container(cfg.env_modifier, resolve=True) if hasattr(cfg, "env_modifier") else None,
         "image_keys": image_keys,
         "n_step": cfg.algo.n_step,
         "gamma": cfg.algo.gamma,
@@ -909,40 +909,45 @@ def main(cfg: ResidualTD3DexmgConfig):
     tb_writer = SummaryWriter(log_dir=str(run_cache_dir / "tb_logs"))
     print(f"Run output directory: {run_cache_dir}")
 
-    print("Initializing LaNERewardShaper...")
-    lane_shaper = LaNERewardShaper(
-        device, action_dim, offline_rb, online_rb=online_rb,
-        p_reward=1.0, 
-        action_l2_reg_weight=cfg.agent.actor.action_l2_reg_weight,
-        reward_type=getattr(cfg.algo, "reward_type", "reward_3"),
-        beta=getattr(cfg.algo, "reward_beta", 0.5),
-        alpha=getattr(cfg.algo, "reward_alpha", 0.98),
-        w_m=getattr(cfg.algo, "reward_w_m", 0.3),
-        w_w=getattr(cfg.algo, "reward_w_w", 0.7)
-    )
-    lane_shaper.precompute_offline_dino()
-    lane_shaper.precompute_online_dino(online_rb)
-    
-    # Load pretrained E2C to avoid feature collapse
-    e2c_dir = cfg.e2c_dir
-    if e2c_dir and os.path.exists(e2c_dir):
-        print(f"Loading pretrained E2C weights from {e2c_dir}...")
-        lane_shaper.e2c_main.load_state_dict(torch.load(f"{e2c_dir}/e2c_front.pt", map_location=device))
-        lane_shaper.e2c_wrist.load_state_dict(torch.load(f"{e2c_dir}/e2c_wrist.pt", map_location=device))
-        lane_shaper.e2c_main.train()
-        lane_shaper.e2c_wrist.train()
-        
-        # Unfreeze E2C weights (freeze_e2c flag controls whether update_e2c is called)
-        for p in lane_shaper.e2c_main.parameters(): p.requires_grad = True
-        for p in lane_shaper.e2c_wrist.parameters(): p.requires_grad = True
-        
-        lane_shaper.initialized = True
-        lane_shaper.initialize_demos()
-        print(f"Pretrained E2C weights loaded. freeze_e2c={cfg.algo.freeze_e2c}")
+    reward_type = getattr(cfg.algo, "reward_type", "reward_2")
+    if reward_type.lower() == "none":
+        lane_shaper = None
+        print("Reward type is 'none'. Skipping LaNERewardShaper initialization.")
     else:
-        print(f"[WARN] E2C dir not found: {e2c_dir}. Training E2C from scratch.")
+        print("Initializing LaNERewardShaper...")
+        lane_shaper = LaNERewardShaper(
+            device, action_dim, offline_rb, online_rb=online_rb,
+            p_reward=getattr(cfg.algo, "p_reward", 1.0), 
+            action_l2_reg_weight=cfg.agent.actor.action_l2_reg_weight,
+            reward_type=reward_type,
+            beta=getattr(cfg.algo, "reward_beta", 0.5),
+            alpha=getattr(cfg.algo, "reward_alpha", 0.98),
+            w_m=getattr(cfg.algo, "reward_w_m", 0.3),
+            w_w=getattr(cfg.algo, "reward_w_w", 0.7)
+        )
+        lane_shaper.precompute_offline_dino()
+        lane_shaper.precompute_online_dino(online_rb)
+        
+        # Load pretrained E2C to avoid feature collapse
+        e2c_dir = cfg.e2c_dir
+        if e2c_dir and os.path.exists(e2c_dir):
+            print(f"Loading pretrained E2C weights from {e2c_dir}...")
+            lane_shaper.e2c_main.load_state_dict(torch.load(f"{e2c_dir}/e2c_front.pt", map_location=device))
+            lane_shaper.e2c_wrist.load_state_dict(torch.load(f"{e2c_dir}/e2c_wrist.pt", map_location=device))
+            lane_shaper.e2c_main.train()
+            lane_shaper.e2c_wrist.train()
             
-    print("LaNERewardShaper initialized.")
+            # Unfreeze E2C weights (freeze_e2c flag controls whether update_e2c is called)
+            for p in lane_shaper.e2c_main.parameters(): p.requires_grad = True
+            for p in lane_shaper.e2c_wrist.parameters(): p.requires_grad = True
+            
+            lane_shaper.initialized = True
+            lane_shaper.initialize_demos()
+            print(f"Pretrained E2C weights loaded. freeze_e2c={cfg.algo.freeze_e2c}")
+        else:
+            print(f"[WARN] E2C dir not found: {e2c_dir}. Training E2C from scratch.")
+                
+        print("LaNERewardShaper initialized.")
 
     obs, _ = env.reset()
 
@@ -1198,7 +1203,9 @@ def main(cfg: ResidualTD3DexmgConfig):
                     actor_updates += 1
 
                 # Apply LaNE dense reward shaping
-                lane_stats = lane_shaper.shape_reward(batch, global_step)
+                lane_stats = {}
+                if lane_shaper is not None:
+                    lane_stats = lane_shaper.shape_reward(batch, global_step)
 
                 with training_timer.time("gradient_update"):
                     metrics = agent.update(batch, stddev, update_actor, bc_batch=None, ref_agent=agent)

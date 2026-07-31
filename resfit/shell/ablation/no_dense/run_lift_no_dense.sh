@@ -31,6 +31,7 @@ echo "WandB Name      : $WANDB_NAME"
 echo "=================================================="
 
 # Clear scratch memory buffers
+rm -rf /home/moai/ysl_ws/cover/scratch/online_buffer_cache/* /home/moai/ysl_ws/cover/scratch/offline_buffer_cache/*
 rm -rf /home/moai/ysl_ws/cover/scratch/online/* /home/moai/ysl_ws/cover/scratch/offline/*
 
 # Environment variables
