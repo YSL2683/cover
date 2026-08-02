@@ -13,7 +13,7 @@ from e2c import MLPE2C
 
 class LaNERewardShaper:
     def __init__(self, device, action_dim, offline_rb, online_rb=None, p_reward=1.0, action_l2_reg_weight=0.0, reward_type="reward_2",
-                 beta=0.5, alpha=0.98, w_m=0.3, w_w=0.7):
+                 beta=0.5, alpha=0.98, w_m=0.3, w_w=0.7, gamma=0.99):
         self.device = device
         self.p_reward = p_reward
         self.action_l2_reg_weight = action_l2_reg_weight
@@ -22,6 +22,7 @@ class LaNERewardShaper:
         self.alpha = alpha
         self.w_m = w_m
         self.w_w = w_w
+        self.gamma = gamma
         self.offline_rb = offline_rb
         self.online_rb = online_rb
         
@@ -461,10 +462,10 @@ class LaNERewardShaper:
             # 2. Compute Potential for s (current state)
             Phi_curr, S_main_curr, S_wrist_curr, min_dist_m_curr, min_dist_w_curr, rem_t_m_curr, rem_t_w_curr = self._compute_potential(batch["dino"])
             
-            # 3. PBRS Difference (gamma = 0.99)
+            # 3. PBRS Difference (using self.gamma)
             # Apply terminal masking: Phi(s_{terminal}) = 0
             # batch["nonterminal"] is True when episode is ongoing, False when done.
-            gamma_env = 0.99
+            gamma_env = self.gamma
             nonterminal_mask = batch["nonterminal"].squeeze().detach().cpu().numpy()
             
             r_dense = (gamma_env * Phi_next * nonterminal_mask - Phi_curr) * self.p_reward

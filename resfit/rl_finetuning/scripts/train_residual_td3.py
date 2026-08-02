@@ -923,7 +923,8 @@ def main(cfg: ResidualTD3DexmgConfig):
             beta=getattr(cfg.algo, "reward_beta", 0.5),
             alpha=getattr(cfg.algo, "reward_alpha", 0.98),
             w_m=getattr(cfg.algo, "reward_w_m", 0.3),
-            w_w=getattr(cfg.algo, "reward_w_w", 0.7)
+            w_w=getattr(cfg.algo, "reward_w_w", 0.7),
+            gamma=getattr(cfg.algo, "gamma", 0.99)
         )
         lane_shaper.precompute_offline_dino()
         lane_shaper.precompute_online_dino(online_rb)
