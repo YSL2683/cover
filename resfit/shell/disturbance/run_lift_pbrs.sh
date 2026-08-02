@@ -14,7 +14,7 @@ BASE_POLICY_PATH="resfit/my_lerobot_data/bc_run_2026-07-30_16-20-35_lane_lift_id
 E2C_DIR="/home/moai/ysl_ws/cover/lane/pretrained_e2c/lift"
 
 # Disturbance parameters
-DIST_STEP_RANGE="[0, 100]"
+DIST_STEP_RANGE="[0, 17]"
 DIST_FORCE_RANGE="[250, 250]"
 NUM_DISTURBANCES=1
 
@@ -72,8 +72,8 @@ export LEROBOT_OFFLINE=1
 
 # Run training
 python resfit/rl_finetuning/scripts/train_residual_td3.py \
-    env_modifier.ood_position.x_bounds="[-0.05, 0.05]" \
-    env_modifier.ood_position.y_bounds="[-0.05, 0.05]" \
+    env_modifier.ood_position.x_bounds="[-0.025, 0.025]" \
+    env_modifier.ood_position.y_bounds="[-0.025, 0.025]" \
     env_modifier.disturbance.step_range="${DIST_STEP_RANGE}" \
     env_modifier.disturbance.force_range="${DIST_FORCE_RANGE}" \
     env_modifier.disturbance.num_disturbances=${NUM_DISTURBANCES} \

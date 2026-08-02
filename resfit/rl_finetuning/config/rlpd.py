@@ -255,9 +255,16 @@ class OodPositionConfig:
     y_bounds: list[float] = field(default_factory=lambda: [-0.05, 0.05])
 
 @dataclass
+class DisturbanceConfig:
+    step_range: list[int] = field(default_factory=lambda: [0, 100])
+    force_range: list[float] = field(default_factory=lambda: [250.0, 250.0])
+    num_disturbances: int = 1
+
+@dataclass
 class EnvModifierConfig:
     mode: str = "default"  # e.g., "default", "ood_position", "visual_ood"
     ood_position: OodPositionConfig = field(default_factory=OodPositionConfig)
+    disturbance: DisturbanceConfig = field(default_factory=DisturbanceConfig)
 
 
 @dataclass
