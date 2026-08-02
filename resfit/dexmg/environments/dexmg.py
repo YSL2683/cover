@@ -239,12 +239,71 @@ class RobosuiteGymWrapper:
             
         self.env._load_model = custom_load_model
 
-    def _apply_env_modifiers(self):
-        """Applies extensible OOD configurations to the underlying robosuite environment."""
-        if getattr(self, "env_modifier_config", None) is None or self.env_modifier_config.mode == "default":
+    def _setup_disturbance_hook(self):
+        if getattr(self.env_modifier_config, "disturbance", None) is None:
             return
             
-        if self.env_modifier_config.mode == "ood_position":
+        original_sim_step = self.env.sim.step
+        
+        def custom_sim_step(*args, **kwargs):
+            # Apply force if current episode step matches any of the randomly chosen disturbance steps
+            if hasattr(self, "_disturbance_steps") and getattr(self, "episode_steps", -1) in self._disturbance_steps:
+                if not getattr(self, "_disturbance_applied_this_step", False):
+                    # Generate a new random force for this specific disturbance
+                    f_mag = np.random.uniform(self._force_range[0], self._force_range[1])
+                    angle = np.random.uniform(0, 2 * np.pi)
+                    self._current_force = [f_mag * np.cos(angle), f_mag * np.sin(angle), 0, 0, 0, 0]
+                    print(f"[Disturbance Hook] TRIGGERED at step {self.episode_steps} with force {self._current_force}")
+                    self._disturbance_applied_this_step = True
+                try:
+                    eef_name = self.env.robots[0].robot_model.eef_name
+                    if hasattr(self.env.sim.model, "body_name2id"):
+                        body_id = self.env.sim.model.body_name2id(eef_name)
+                    else:
+                        import mujoco
+                        body_id = mujoco.mj_name2id(self.env.sim.model._model, mujoco.mjtObj.mjOBJ_BODY, eef_name)
+                    
+                    xfrc = self.env.sim.data.xfrc_applied
+                    force = self._current_force
+                    
+                    if len(xfrc.shape) == 1:
+                        xfrc[body_id * 6 : body_id * 6 + 6] = force
+                    else:
+                        xfrc[body_id] = force
+                except Exception as e:
+                    logger.warning(f"Failed to apply disturbance: {e}")
+            else:
+                # Reset force and state
+                if getattr(self, "_disturbance_applied_this_step", False):
+                    self._disturbance_applied_this_step = False
+                    try:
+                        eef_name = self.env.robots[0].robot_model.eef_name
+                        if hasattr(self.env.sim.model, "body_name2id"):
+                            body_id = self.env.sim.model.body_name2id(eef_name)
+                        else:
+                            import mujoco
+                            body_id = mujoco.mj_name2id(self.env.sim.model._model, mujoco.mjtObj.mjOBJ_BODY, eef_name)
+                        
+                        xfrc = self.env.sim.data.xfrc_applied
+                        if len(xfrc.shape) == 1:
+                            xfrc[body_id * 6 : body_id * 6 + 6] = 0
+                        else:
+                            xfrc[body_id] = 0
+                        print(f"[Disturbance Hook] RESET force to 0 at step {self.episode_steps}")
+                    except:
+                        pass
+
+            return original_sim_step(*args, **kwargs)
+
+            
+        self.env.sim.step = custom_sim_step
+
+    def _apply_env_modifiers(self):
+        """Applies extensible OOD configurations to the underlying robosuite environment."""
+        if getattr(self, "env_modifier_config", None) is None:
+            return
+            
+        if getattr(self.env_modifier_config, "ood_position", None) is not None:
             try:
                 sampler = self.env.placement_initializer
                 if hasattr(sampler, "samplers"):
@@ -326,18 +385,41 @@ class RobosuiteGymWrapper:
     def reset(self, *, seed=None, options=None):
         """Reset the environment and return initial observation."""
         if seed is not None:
-            import numpy as np
+            import numpy as _np
             import random
             import torch
-            np.random.seed(seed)
+            _np.random.seed(seed)
             random.seed(seed)
             torch.manual_seed(seed)
         # Gymnasium interface: reset can accept seed and options
         # For robosuite environments, we'll ignore options for now
         obs = self.env.reset()
+        self._setup_disturbance_hook()
         processed_obs = self._process_obs(obs)
         self._last_obs = processed_obs  # Store for video recording
         self.episode_steps = 0
+        
+        dist_cfg = getattr(self.env_modifier_config, "disturbance", None)
+        if dist_cfg is not None:
+            # Handle both dictionary and OmegaConf object
+            if isinstance(dist_cfg, dict):
+                step_range = dist_cfg.get("step_range", [20, 60])
+                force_range = dist_cfg.get("force_range", [800, 1000])
+                num_dist = dist_cfg.get("num_disturbances", 3)
+            else:
+                step_range = getattr(dist_cfg, "step_range", [20, 60])
+                force_range = getattr(dist_cfg, "force_range", [800, 1000])
+                num_dist = getattr(dist_cfg, "num_disturbances", 3)
+                
+            self._force_range = force_range
+            # Choose multiple unique random steps for disturbance
+            valid_steps = np.arange(step_range[0], step_range[1])
+            self._disturbance_steps = np.random.choice(
+                valid_steps, 
+                size=min(num_dist, len(valid_steps)), 
+                replace=False
+            )
+            
         return processed_obs, {}
 
     def step(self, action):
