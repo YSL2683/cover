@@ -1157,10 +1157,11 @@ def main(cfg: ResidualTD3DexmgConfig):
                         torch.save(lane_shaper.e2c_wrist.state_dict(), e2c_wrist_path)
                     print(f"Saved new best model to {best_ckpt_path}")
                 
-                # Log eval metrics to Tensorboard
+                # Log eval metrics to Tensorboard and WandB
                 for k, v in eval_metrics.items():
                     if isinstance(v, (int, float)):
                         tb_writer.add_scalar(k, v, global_step)
+                wandb.log(eval_metrics, step=global_step)
 
         global_step += cfg.num_envs
 

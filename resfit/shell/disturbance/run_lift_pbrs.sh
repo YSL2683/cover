@@ -15,11 +15,11 @@ E2C_DIR="/home/moai/ysl_ws/cover/lane/pretrained_e2c/lift"
 
 # Disturbance parameters
 DIST_STEP_RANGE="[0, 17]"
-DIST_FORCE_RANGE="[250, 250]"
+DIST_FORCE_RANGE="[20, 20]"
 NUM_DISTURBANCES=1
 
 # Name for Weights & Biases
-WANDB_NAME="disturb_pbrs_beta${BETA}_scale${P_REWARD}_f${NUM_DISTURBANCES}"
+WANDB_NAME="disturb_pbrs_beta${BETA}_scale${P_REWARD}_continuous_20"
 
 # Parse command line arguments
 while [[ "$#" -gt 0 ]]; do

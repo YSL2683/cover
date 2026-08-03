@@ -244,38 +244,15 @@ class RobosuiteGymWrapper:
             return
             
         original_sim_step = self.env.sim.step
-        
         def custom_sim_step(*args, **kwargs):
-            # Apply force if current episode step matches any of the randomly chosen disturbance steps
-            if hasattr(self, "_disturbance_steps") and getattr(self, "episode_steps", -1) in self._disturbance_steps:
-                if not getattr(self, "_disturbance_applied_this_step", False):
-                    # Generate a new random force for this specific disturbance
-                    f_mag = np.random.uniform(self._force_range[0], self._force_range[1])
-                    angle = np.random.uniform(0, 2 * np.pi)
-                    self._current_force = [f_mag * np.cos(angle), f_mag * np.sin(angle), 0, 0, 0, 0]
-                    print(f"[Disturbance Hook] TRIGGERED at step {self.episode_steps} with force {self._current_force}")
-                    self._disturbance_applied_this_step = True
-                try:
-                    eef_name = self.env.robots[0].robot_model.eef_name
-                    if hasattr(self.env.sim.model, "body_name2id"):
-                        body_id = self.env.sim.model.body_name2id(eef_name)
-                    else:
-                        import mujoco
-                        body_id = mujoco.mj_name2id(self.env.sim.model._model, mujoco.mjtObj.mjOBJ_BODY, eef_name)
-                    
-                    xfrc = self.env.sim.data.xfrc_applied
-                    force = self._current_force
-                    
-                    if len(xfrc.shape) == 1:
-                        xfrc[body_id * 6 : body_id * 6 + 6] = force
-                    else:
-                        xfrc[body_id] = force
-                except Exception as e:
-                    logger.warning(f"Failed to apply disturbance: {e}")
-            else:
-                # Reset force and state
-                if getattr(self, "_disturbance_applied_this_step", False):
-                    self._disturbance_applied_this_step = False
+            if hasattr(self, "_disturbance_step_range"):
+                ep_step = getattr(self, "episode_steps", -1)
+                in_range = self._disturbance_step_range[0] <= ep_step < self._disturbance_step_range[1]
+                if in_range:
+                    if not getattr(self, "_disturbance_applied_this_step", False):
+                        # Force was already generated in reset, we just log once when it starts
+                        print(f"[Disturbance Hook] APPLYING constant force {self._current_force} from step {self._disturbance_step_range[0]} to {self._disturbance_step_range[1]}")
+                        self._disturbance_applied_this_step = True
                     try:
                         eef_name = self.env.robots[0].robot_model.eef_name
                         if hasattr(self.env.sim.model, "body_name2id"):
@@ -285,14 +262,35 @@ class RobosuiteGymWrapper:
                             body_id = mujoco.mj_name2id(self.env.sim.model._model, mujoco.mjtObj.mjOBJ_BODY, eef_name)
                         
                         xfrc = self.env.sim.data.xfrc_applied
+                        force = self._current_force
+                        
                         if len(xfrc.shape) == 1:
-                            xfrc[body_id * 6 : body_id * 6 + 6] = 0
+                            xfrc[body_id * 6 : body_id * 6 + 6] = force
                         else:
-                            xfrc[body_id] = 0
-                        print(f"[Disturbance Hook] RESET force to 0 at step {self.episode_steps}")
-                    except:
-                        pass
-
+                            xfrc[body_id] = force
+                    except Exception as e:
+                        logger.warning(f"Failed to apply disturbance: {e}")
+                else:
+                    # Reset force and state
+                    if getattr(self, "_disturbance_applied_this_step", False):
+                        self._disturbance_applied_this_step = False
+                        try:
+                            eef_name = self.env.robots[0].robot_model.eef_name
+                            if hasattr(self.env.sim.model, "body_name2id"):
+                                body_id = self.env.sim.model.body_name2id(eef_name)
+                            else:
+                                import mujoco
+                                body_id = mujoco.mj_name2id(self.env.sim.model._model, mujoco.mjtObj.mjOBJ_BODY, eef_name)
+                            
+                            xfrc = self.env.sim.data.xfrc_applied
+                            if len(xfrc.shape) == 1:
+                                xfrc[body_id * 6 : body_id * 6 + 6] = 0
+                            else:
+                                xfrc[body_id] = 0
+                            print(f"[Disturbance Hook] RESET force to 0 at step {ep_step}")
+                        except:
+                            pass
+            
             return original_sim_step(*args, **kwargs)
 
             
@@ -394,6 +392,18 @@ class RobosuiteGymWrapper:
         # Gymnasium interface: reset can accept seed and options
         # For robosuite environments, we'll ignore options for now
         obs = self.env.reset()
+        
+        # For NutAssemblySquare / Square, fix the nut orientation to 180 degrees
+        if self.env_name == "NutAssemblySquare" or self.original_env_name in ["Square", "NutAssemblySquare"]:
+            for obj in getattr(self.env, "nuts", []):
+                if obj.name == "SquareNut":
+                    qpos = self.env.sim.data.get_joint_qpos(obj.joints[0])
+                    qpos[3:7] = [0, 0, 0, 1] # 180 degrees
+                    self.env.sim.data.set_joint_qpos(obj.joints[0], qpos)
+                    self.env.sim.forward()
+                    obs = self.env._get_observations(force_update=True)
+                    break
+
         self._setup_disturbance_hook()
         processed_obs = self._process_obs(obs)
         self._last_obs = processed_obs  # Store for video recording
@@ -405,20 +415,18 @@ class RobosuiteGymWrapper:
             if isinstance(dist_cfg, dict):
                 step_range = dist_cfg.get("step_range", [20, 60])
                 force_range = dist_cfg.get("force_range", [800, 1000])
-                num_dist = dist_cfg.get("num_disturbances", 3)
             else:
                 step_range = getattr(dist_cfg, "step_range", [20, 60])
                 force_range = getattr(dist_cfg, "force_range", [800, 1000])
-                num_dist = getattr(dist_cfg, "num_disturbances", 3)
                 
             self._force_range = force_range
-            # Choose multiple unique random steps for disturbance
-            valid_steps = np.arange(step_range[0], step_range[1])
-            self._disturbance_steps = np.random.choice(
-                valid_steps, 
-                size=min(num_dist, len(valid_steps)), 
-                replace=False
-            )
+            self._disturbance_step_range = step_range
+            
+            # Generate constant random force for the episode
+            f_mag = np.random.uniform(force_range[0], force_range[1])
+            angle = np.random.uniform(0, 2 * np.pi)
+            self._current_force = [f_mag * np.cos(angle), f_mag * np.sin(angle), 0, 0, 0, 0]
+            self._disturbance_applied_this_step = False
             
         return processed_obs, {}
 

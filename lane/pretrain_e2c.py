@@ -3,6 +3,7 @@ import numpy as np
 from torch.utils.data import DataLoader, TensorDataset
 import os
 import sys
+import argparse
 import torchvision.transforms as T
 
 # Import MLPE2C from LaNE
@@ -168,9 +169,13 @@ def precompute_demo_latents(e2c_front, e2c_wrist, obs, dino, demo_starts, demo_e
     return z_demo_front, z_demo_wrist, demo_lengths
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Pretrain E2C latent space on demos")
+    parser.add_argument("--demo_dir", type=str, required=True, help="Path to demo directory (e.g. demo/robosuite_nut_assembly_square/20/)")
+    parser.add_argument("--save_dir", type=str, required=True, help="Path to save pretrained E2C models")
+    args = parser.parse_args()
+    
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-    demo_dir = os.path.join(SCRIPT_DIR, "demo/robosuite_lift/20/")
+    demo_dir = args.demo_dir
     
     print("Loading demos...")
     obs, next_obs, actions, starts, ends = load_demos(demo_dir)
@@ -186,7 +191,7 @@ if __name__ == "__main__":
     z_df, z_dw, t_lens = precompute_demo_latents(e2c_f, e2c_w, obs, dino, starts, ends, device)
     
     print("Saving artifacts...")
-    save_dir = os.path.join(SCRIPT_DIR, "pretrained_e2c/lift")
+    save_dir = args.save_dir
     os.makedirs(save_dir, exist_ok=True)
     torch.save(e2c_f.state_dict(), os.path.join(save_dir, "e2c_front.pt"))
     torch.save(e2c_w.state_dict(), os.path.join(save_dir, "e2c_wrist.pt"))

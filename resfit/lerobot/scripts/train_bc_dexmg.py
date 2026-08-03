@@ -848,7 +848,7 @@ def main(cfg: argparse.Namespace):
                 )
             )
 
-            if wandb is not None:
+            if getattr(cfg, 'wandb_enable', False) and wandb is not None:
                 wandb.log(
                     {
                         "eval/success_rate": success_rate,
@@ -879,14 +879,14 @@ def main(cfg: argparse.Namespace):
                     shutil.rmtree(best_dir)
                 save_checkpoint(best_dir, step, policy, optimizer)
 
-                if wandb is not None:
+                if getattr(cfg, 'wandb_enable', False) and wandb is not None:
                     # Overwrite/refresh the "best" artifact so that the most recent best checkpoint is easy to retrieve
                     art_best = wandb.Artifact(name=f"run_{wandb.run.id}_best", type="model")
                     art_best.add_dir(str(best_dir))
                     wandb.log_artifact(art_best, aliases=["best", "latest"])
 
     logger.info(colored("Training finished!", "green", attrs=["bold"]))
-    if wandb is not None:
+    if getattr(cfg, 'wandb_enable', False) and wandb is not None:
         wandb.finish()
 
     if eval_env is not None:
