@@ -3,7 +3,7 @@
 # Note: Uses task-isolated CACHE_DIR to support concurrent multi-task Residual RL training.
 
 # Default parameters
-REWARD_TYPE="reward_pbrs"
+REWARD_TYPE="reward_pbrs_2squared"
 BETA=1.0
 ALPHA=0.98
 W_M=0.3

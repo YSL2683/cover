@@ -279,8 +279,60 @@ class LaNERewardShaper:
         gamma_m = self.beta / ((self.ref_one_step_dist_main ** 2) + 1e-8)
         gamma_w = self.beta / ((self.ref_one_step_dist_wrist ** 2) + 1e-8)
         
+        # 4th power kernel: exp(-gamma * d^4)  (min_dist is already squared -> square again)
         S_main = np.exp(-gamma_m * (min_dist_m ** 2))
         S_wrist = np.exp(-gamma_w * (min_dist_w ** 2))
+        
+        rem_t_m = T_demos_m - idx_m_best
+        rem_t_w = T_demos_w - idx_w_best
+        
+        Phi = (self.w_m * np.power(self.alpha, rem_t_m) * S_main) + (self.w_w * np.power(self.alpha, rem_t_w) * S_wrist)
+        
+        return Phi, S_main, S_wrist, min_dist_m, min_dist_w, rem_t_m, rem_t_w
+
+    def _compute_potential_2squared(self, dino_tensor):
+        """Computes visual potential Phi(s) using a 2nd-power (squared-distance) RBF kernel.
+        
+        Unlike _compute_potential which uses exp(-gamma * d^4),
+        this uses exp(-gamma * d^2) where d^2 is the squared L2 distance in latent space.
+        This gives a wider, smoother similarity field.
+        """
+        dino_m, dino_w = dino_tensor[:, :384], dino_tensor[:, 384:]
+        
+        z_pred_m = self.e2c_main.enc(dino_m)[0].unsqueeze(1).detach().cpu().numpy()
+        z_pred_w = self.e2c_wrist.enc(dino_w)[0].unsqueeze(1).detach().cpu().numpy()
+        
+        N = len(dino_tensor)
+        min_dist_m = np.ones(N) * 10000
+        min_dist_w = np.ones(N) * 10000
+        idx_m_best = np.zeros(N)
+        idx_w_best = np.zeros(N)
+        T_demos_m = np.zeros(N)
+        T_demos_w = np.zeros(N)
+        
+        for i in range(len(self.demo_starts)):
+            z_demo_m = self.z_demo_main_cache[i]
+            z_dist_m = ((z_demo_m - z_pred_m) ** 2).sum(axis=2)
+            z_dist_min_m = z_dist_m.min(axis=1)
+            update_min_m = z_dist_min_m < min_dist_m
+            min_dist_m[update_min_m] = z_dist_min_m[update_min_m]
+            idx_m_best[update_min_m] = z_dist_m.argmin(axis=1)[update_min_m]
+            T_demos_m[update_min_m] = z_dist_m.shape[1]
+            
+            z_demo_w = self.z_demo_wrist_cache[i]
+            z_dist_w = ((z_demo_w - z_pred_w) ** 2).sum(axis=2)
+            z_dist_min_w = z_dist_w.min(axis=1)
+            update_min_w = z_dist_min_w < min_dist_w
+            min_dist_w[update_min_w] = z_dist_min_w[update_min_w]
+            idx_w_best[update_min_w] = z_dist_w.argmin(axis=1)[update_min_w]
+            T_demos_w[update_min_w] = z_dist_w.shape[1]
+            
+        gamma_m = self.beta / (self.ref_one_step_dist_main + 1e-8)
+        gamma_w = self.beta / (self.ref_one_step_dist_wrist + 1e-8)
+        
+        # 2nd power kernel: exp(-gamma * d^2)  (use min_dist directly, not squared again)
+        S_main = np.exp(-gamma_m * min_dist_m)
+        S_wrist = np.exp(-gamma_w * min_dist_w)
         
         rem_t_m = T_demos_m - idx_m_best
         rem_t_w = T_demos_w - idx_w_best
@@ -506,4 +558,66 @@ class LaNERewardShaper:
                 "lane/rem_t_main_next_avg": rem_t_m_next.mean(),
                 "lane/rem_t_wrist_next_avg": rem_t_w_next.mean(),
                 "lane/action_l2_penalty": action_l2_penalty_mean,
+                "lane/ref_one_step_dist_main": self.ref_one_step_dist_main,
+                "lane/ref_one_step_dist_wrist": self.ref_one_step_dist_wrist
+            }
+
+        elif self.reward_type == "reward_pbrs_2squared":
+            # -------------------------------------------------------------
+            # Potential-Based Reward Shaping (PBRS) with 2nd-power (squared) distance kernel
+            # F(s, a, s') = gamma * Phi(s') - Phi(s)
+            # Similarity: exp(-gamma * d^2)  vs reward_pbrs which uses exp(-gamma * d^4)
+            # A 2nd-power kernel gives a wider, smoother potential landscape.
+            # -------------------------------------------------------------
+            # 1. Compute Potential for s' (next state) using 2squared kernel
+            Phi_next, S_main_next, S_wrist_next, min_dist_m_next, min_dist_w_next, rem_t_m_next, rem_t_w_next = self._compute_potential_2squared(batch["next", "dino"])
+            
+            # 2. Compute Potential for s (current state) using 2squared kernel
+            Phi_curr, S_main_curr, S_wrist_curr, min_dist_m_curr, min_dist_w_curr, rem_t_m_curr, rem_t_w_curr = self._compute_potential_2squared(batch["dino"])
+            
+            # 3. PBRS Difference (using self.gamma)
+            # Apply terminal masking: Phi(s_{terminal}) = 0
+            gamma_env = self.gamma
+            nonterminal_mask = batch["nonterminal"].squeeze().detach().cpu().numpy()
+            
+            r_dense = (gamma_env * Phi_next * nonterminal_mask - Phi_curr) * self.p_reward
+            
+            # Add PBRS dense reward to batch
+            add_rew = torch.as_tensor(r_dense, device=self.device, dtype=torch.float32).view(batch["next", "reward"].shape)
+            batch["next", "reward"] += add_rew
+            
+            # 4. Action regularization term (using S_next as reference for ID boundary)
+            action_l2_penalty_mean = 0.0
+            if self.action_l2_reg_weight > 0:
+                a_total = batch["action"]
+                a_base = batch["obs", "observation.base_action"]
+                a_res = a_total - a_base
+                action_l2 = (a_res ** 2).sum(dim=-1)
+                
+                S_joint = torch.as_tensor(S_main_next * S_wrist_next, device=self.device, dtype=torch.float32)
+                r_reg = self.action_l2_reg_weight * S_joint * action_l2
+                r_reg = r_reg.view(batch["next", "reward"].shape)
+                
+                batch["next", "reward"] -= r_reg
+                action_l2_penalty_mean = r_reg.mean().item()
+                
+            return {
+                "lane/Phi_next_avg": Phi_next.mean(),
+                "lane/Phi_curr_avg": Phi_curr.mean(),
+                "lane/Phi_next_hist": wandb.Histogram(Phi_next),
+                "lane/PBRS_dense_avg": r_dense.mean(),
+                "lane/PBRS_dense_min": r_dense.min(),
+                "lane/PBRS_dense_max": r_dense.max(),
+                "lane/PBRS_dense_hist": wandb.Histogram(r_dense),
+                "lane/S_main_next_avg": S_main_next.mean(),
+                "lane/S_main_next_hist": wandb.Histogram(S_main_next),
+                "lane/S_wrist_next_avg": S_wrist_next.mean(),
+                "lane/S_wrist_next_hist": wandb.Histogram(S_wrist_next),
+                "lane/min_dist_main_next_avg": min_dist_m_next.mean(),
+                "lane/min_dist_wrist_next_avg": min_dist_w_next.mean(),
+                "lane/rem_t_main_next_avg": rem_t_m_next.mean(),
+                "lane/rem_t_wrist_next_avg": rem_t_w_next.mean(),
+                "lane/action_l2_penalty": action_l2_penalty_mean,
+                "lane/ref_one_step_dist_main": self.ref_one_step_dist_main,
+                "lane/ref_one_step_dist_wrist": self.ref_one_step_dist_wrist
             }

@@ -168,18 +168,20 @@ class ResidualTD3CanConfig(ResidualTD3DexmgConfig):
 
 @dataclass
 class ResidualTD3SquareConfig(ResidualTD3DexmgConfig):
-    task: str = "Square"
+    task: str = "SquareOOD"
 
     offline_data: OfflineDataConfig = field(
         default_factory=lambda: OfflineDataConfig(
-            name="ankile/robomimic-mh-square-image",
-            num_episodes=300,
+            name="ysl2683/lane_nut_assembly_square_id_20",
+            num_episodes=20,
         )
     )
 
     base_policy: BasePolicyConfig = field(
         default_factory=lambda: BasePolicyConfig(
-            wandb_id="robomimic-square-bc/dzbkdpwp",
+            wandb_id="TODO",
+            wt_type="best",
+            wt_version="latest",
         )
     )
 
