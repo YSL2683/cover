@@ -103,6 +103,8 @@ class RobosuiteGymWrapper:
             # "Transport" and things will work out of the box.
             "Can": "PickPlaceCan",
             "Square": "NutAssemblySquare",
+            "SquareID": "NutAssemblySquare",
+            "SquareOOD": "NutAssemblySquare",
             "Transport": "TwoArmTransport",
         }
 
@@ -300,6 +302,11 @@ class RobosuiteGymWrapper:
         """Applies extensible OOD configurations to the underlying robosuite environment."""
         if getattr(self, "env_modifier_config", None) is None:
             return
+
+        # Skip modifiers entirely when mode is "none" or not specified
+        mode = getattr(self.env_modifier_config, "mode", None)
+        if mode is None or mode == "none":
+            return
             
         if getattr(self.env_modifier_config, "ood_position", None) is not None:
             try:
@@ -393,8 +400,9 @@ class RobosuiteGymWrapper:
         # For robosuite environments, we'll ignore options for now
         obs = self.env.reset()
         
-        # For NutAssemblySquare / Square, fix the nut orientation to 180 degrees
-        if self.env_name == "NutAssemblySquare" or self.original_env_name in ["Square", "NutAssemblySquare"]:
+        # For SquareID, fix nut orientation to 180 degrees (ID condition)
+        # For Square / SquareOOD, keep robomimic default random orientation (OOD condition)
+        if self.original_env_name == "SquareID":
             for obj in getattr(self.env, "nuts", []):
                 if obj.name == "SquareNut":
                     qpos = self.env.sim.data.get_joint_qpos(obj.joints[0])
@@ -422,9 +430,22 @@ class RobosuiteGymWrapper:
             self._force_range = force_range
             self._disturbance_step_range = step_range
             
-            # Generate constant random force for the episode
+            # Generate force for the episode (supports fixed angle/mode or random)
             f_mag = np.random.uniform(force_range[0], force_range[1])
-            angle = np.random.uniform(0, 2 * np.pi)
+            if isinstance(dist_cfg, dict):
+                fixed_angle = dist_cfg.get("fixed_angle", None)
+                dist_mode = dist_cfg.get("mode", "random")
+            else:
+                fixed_angle = getattr(dist_cfg, "fixed_angle", None)
+                dist_mode = getattr(dist_cfg, "mode", "random")
+
+            if fixed_angle is not None:
+                angle = float(fixed_angle)
+            elif dist_mode == "fixed":
+                angle = 0.0  # Default +X direction for fixed mode
+            else:
+                angle = np.random.uniform(0, 2 * np.pi)
+
             self._current_force = [f_mag * np.cos(angle), f_mag * np.sin(angle), 0, 0, 0, 0]
             self._disturbance_applied_this_step = False
             

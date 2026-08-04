@@ -1,5 +1,6 @@
 #!/bin/bash
-# Script to run Residual TD3 with Potential-Based Reward Shaping (PBRS) under Physical Disturbances
+# Script to run Residual TD3 with Potential-Based Reward Shaping (PBRS) for SquareOOD
+# Note: Uses task-isolated CACHE_DIR to support concurrent multi-task Residual RL training.
 
 # Default parameters
 REWARD_TYPE="reward_pbrs"
@@ -10,16 +11,14 @@ W_W=0.7
 P_REWARD=100.0  # Scaling factor for PBRS difference magnitude
 SEED=42
 FREEZE_E2C="True"
-BASE_POLICY_PATH="resfit/my_lerobot_data/bc_run_2026-07-30_16-20-35_lane_lift_id_20_aligned_diffusion/policy_step_5000/policy"
-E2C_DIR="/home/moai/ysl_ws/cover/lane/pretrained_e2c/lift"
 
-# Disturbance parameters
-DIST_STEP_RANGE="[0, 17]"
-DIST_FORCE_RANGE="[20, 20]"
-NUM_DISTURBANCES=1
+# Base policy path (placeholder pointing to policy in resfit/my_lerobot_data)
+BASE_POLICY_PATH="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/bc_run_2026-08-03_12-12-53_lane_nut_assembly_square_id_20_diffusion/best/policy"
+E2C_DIR="/home/moai/ysl_ws/cover/lane/pretrained_e2c/nut_assembly_square"
 
 # Name for Weights & Biases
-WANDB_NAME="disturb_pbrs_beta${BETA}_scale${P_REWARD}_continuous_20"
+WANDB_PROJECT="square_residual_rl"
+WANDB_NAME="pbrs_beta${BETA}_scale${P_REWARD}_freeze"
 
 # Parse command line arguments
 while [[ "$#" -gt 0 ]]; do
@@ -35,51 +34,46 @@ while [[ "$#" -gt 0 ]]; do
         --freeze_e2c) FREEZE_E2C="$2"; shift ;;
         --base_policy_path) BASE_POLICY_PATH="$2"; shift ;;
         --e2c_dir) E2C_DIR="$2"; shift ;;
-        --dist_step_range) DIST_STEP_RANGE="$2"; shift ;;
-        --dist_force_range) DIST_FORCE_RANGE="$2"; shift ;;
-        --num_disturbances) NUM_DISTURBANCES="$2"; shift ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
     esac
     shift
 done
 
 echo "=================================================="
-echo "Starting Residual TD3 Training with V-PBRS (Disturbance Env)"
+echo "Starting Residual TD3 Training for SquareOOD with V-PBRS"
+echo "Target Task     : SquareOOD (Random Position & Random Orientation)"
 echo "Reward Type     : $REWARD_TYPE"
 echo "Reward Scale    : $P_REWARD"
 echo "Beta            : $BETA"
 echo "Alpha           : $ALPHA"
 echo "Main Weight     : $W_M"
 echo "Wrist Weight    : $W_W"
-echo "Dist. Steps     : $DIST_STEP_RANGE"
-echo "Dist. Force     : $DIST_FORCE_RANGE"
-echo "Dist. Count     : $NUM_DISTURBANCES"
 echo "Seed            : $SEED"
 echo "Freeze E2C      : $FREEZE_E2C"
+echo "WandB Project   : $WANDB_PROJECT"
 echo "WandB Name      : $WANDB_NAME"
+echo "Base Policy Path: $BASE_POLICY_PATH"
+echo "E2C Dir         : $E2C_DIR"
 echo "=================================================="
 
-# Clear scratch memory buffers
-rm -rf /home/moai/ysl_ws/cover/scratch/online_buffer_cache/* /home/moai/ysl_ws/cover/scratch/offline_buffer_cache/*
-rm -rf /home/moai/ysl_ws/cover/scratch/online/* /home/moai/ysl_ws/cover/scratch/offline/*
-
-# Environment variables
+# Environment variables & Isolated Cache Directory for Multi-Task Concurrency
 export PYTHONUNBUFFERED=1
 export PYTHONPATH=/home/moai/ysl_ws/cover:$PYTHONPATH
-export CACHE_DIR=/home/moai/ysl_ws/cover/scratch
+export CACHE_DIR=/home/moai/ysl_ws/cover/scratch/nut_assembly_square
 export HF_HUB_OFFLINE=1
 export LEROBOT_OFFLINE=1
 
-# Run training
+# Clear isolated scratch memory buffers for this task only
+mkdir -p ${CACHE_DIR}
+rm -rf ${CACHE_DIR}/online ${CACHE_DIR}/offline ${CACHE_DIR}/online_buffer_cache ${CACHE_DIR}/offline_buffer_cache
+
+# Run training with task="SquareOOD" and wandb.project="square_residual_rl"
 python resfit/rl_finetuning/scripts/train_residual_td3.py \
-    env_modifier.ood_position.x_bounds="[-0.025, 0.025]" \
-    env_modifier.ood_position.y_bounds="[-0.025, 0.025]" \
-    env_modifier.disturbance.step_range="${DIST_STEP_RANGE}" \
-    env_modifier.disturbance.force_range="${DIST_FORCE_RANGE}" \
-    env_modifier.disturbance.num_disturbances=${NUM_DISTURBANCES} \
-    task="Lift" \
+    env_modifier.mode=none \
+    env_modifier.disturbance=null \
+    task="SquareOOD" \
     rl_camera="['observation.images.frontview','observation.images.robot0_eye_in_hand']" \
-    wandb.project="lift_residual_rl" \
+    wandb.project="${WANDB_PROJECT}" \
     wandb.name="${WANDB_NAME}" \
     seed="${SEED}" \
     algo.reward_type="${REWARD_TYPE}" \

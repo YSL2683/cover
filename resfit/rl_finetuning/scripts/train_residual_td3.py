@@ -451,7 +451,7 @@ def main(cfg: ResidualTD3DexmgConfig):
 
     # Use TensorDictPrioritizedReplayBuffer with optimized prefetching
     online_rb = TensorDictReplayBuffer(
-        storage=LazyMemmapStorage(max_size=cfg.algo.buffer_size, scratch_dir=REPO_ROOT / "scratch/online"),
+        storage=LazyMemmapStorage(max_size=cfg.algo.buffer_size, scratch_dir=_CACHE_ROOT / "online"),
         transform=MultiStepTransform(n_steps=cfg.algo.n_step, gamma=cfg.algo.gamma),
         pin_memory=True,
         prefetch=cfg.algo.prefetch_batches,  # Add prefetching
@@ -544,7 +544,7 @@ def main(cfg: ResidualTD3DexmgConfig):
         print("Online-only mode: creating minimal offline buffer (unused)")
 
     offline_rb = TensorDictReplayBuffer(
-        storage=LazyMemmapStorage(max_size=max_offline_transitions, scratch_dir=REPO_ROOT / "scratch/offline"),
+        storage=LazyMemmapStorage(max_size=max_offline_transitions, scratch_dir=_CACHE_ROOT / "offline"),
         transform=MultiStepTransform(n_steps=cfg.algo.n_step, gamma=cfg.algo.gamma),
         pin_memory=True,
         prefetch=cfg.algo.prefetch_batches,  # Add prefetching

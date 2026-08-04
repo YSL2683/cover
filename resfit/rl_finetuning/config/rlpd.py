@@ -259,12 +259,14 @@ class DisturbanceConfig:
     step_range: list[int] = field(default_factory=lambda: [0, 100])
     force_range: list[float] = field(default_factory=lambda: [250.0, 250.0])
     num_disturbances: int = 1
+    mode: str = "random"
+    fixed_angle: float | None = None
 
 @dataclass
 class EnvModifierConfig:
     mode: str = "default"  # e.g., "default", "ood_position", "visual_ood"
     ood_position: OodPositionConfig = field(default_factory=OodPositionConfig)
-    disturbance: DisturbanceConfig = field(default_factory=DisturbanceConfig)
+    disturbance: DisturbanceConfig | None = field(default_factory=DisturbanceConfig)
 
 
 @dataclass

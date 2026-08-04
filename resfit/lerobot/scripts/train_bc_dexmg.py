@@ -688,6 +688,9 @@ def main(cfg: argparse.Namespace):
             "Lift",
             "Can",
             "Square",
+            "SquareID",
+            "SquareOOD",
+            "NutAssemblySquare",
             "Transport",
         ]
         mimicgen_envs = [
