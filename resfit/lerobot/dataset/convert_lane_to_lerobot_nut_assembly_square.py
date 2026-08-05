@@ -115,6 +115,8 @@ def convert_lane_to_lerobot(
 
     # Upload to HF Hub if requested
     if repo_id:
+        from huggingface_hub import create_repo
+        create_repo(repo_id=repo_id, repo_type="dataset", exist_ok=True)
         # Assign exactly the repo_id the user asked for
         dataset.repo_id = repo_id
         dataset.push_to_hub()

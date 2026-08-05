@@ -325,6 +325,23 @@ class RobosuiteGymWrapper:
             except Exception as e:
                 logger.warning(f"Failed to apply OOD position modifiers: {e}")
 
+        # Add logic for SquareID evaluation (narrow bounds, random rotation)
+        if self.original_env_name == "SquareID":
+            try:
+                sampler = self.env.placement_initializer
+                if hasattr(sampler, "samplers"):
+                    samplers = sampler.samplers
+                    sampler = samplers.get("ObjectSampler")
+                    if sampler is None and len(samplers) > 0:
+                        sampler = list(samplers.values())[0]
+                
+                if sampler is not None:
+                    sampler.x_range = [-0.115, -0.11]
+                    sampler.y_range = [0.11, 0.115]
+                    logger.debug("Applied SquareID Position Bounds: x=[-0.115, -0.11], y=[0.11, 0.115]")
+            except Exception as e:
+                logger.warning(f"Failed to apply SquareID position modifiers: {e}")
+
     def _setup_spaces(self):
         """Setup observation and action spaces for Gymnasium compatibility."""
         # Get action space dimensions from the robosuite environment
@@ -400,18 +417,7 @@ class RobosuiteGymWrapper:
         # For robosuite environments, we'll ignore options for now
         obs = self.env.reset()
         
-        # For SquareID, fix nut orientation to 180 degrees (ID condition)
-        # For Square / SquareOOD, keep robomimic default random orientation (OOD condition)
-        if self.original_env_name == "SquareID":
-            for obj in getattr(self.env, "nuts", []):
-                if obj.name == "SquareNut":
-                    qpos = self.env.sim.data.get_joint_qpos(obj.joints[0])
-                    qpos[3:7] = [0, 0, 0, 1] # 180 degrees
-                    self.env.sim.data.set_joint_qpos(obj.joints[0], qpos)
-                    self.env.sim.forward()
-                    obs = self.env._get_observations(force_update=True)
-                    break
-
+        # (Legacy SquareID fixed-orientation code removed to support random rotation)
         self._setup_disturbance_hook()
         processed_obs = self._process_obs(obs)
         self._last_obs = processed_obs  # Store for video recording

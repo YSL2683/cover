@@ -29,6 +29,12 @@ env = suite.make(
     render_camera="frontview",
 )
 
+# Set SquareNut initial placement range (x uses default [-0.115, -0.11], y uses equivalent width [0.11, 0.115])
+if hasattr(env, "placement_initializer") and hasattr(env.placement_initializer, "samplers"):
+    if "SquareNutSampler" in env.placement_initializer.samplers:
+        env.placement_initializer.samplers["SquareNutSampler"].x_range = [-0.115, -0.11]
+        env.placement_initializer.samplers["SquareNutSampler"].y_range = [0.11, 0.115]
+
 obs_list = []
 next_obs_list = []
 action_list = []
@@ -45,16 +51,6 @@ attempts = 0
 while successful_demos < NUM_DEMOS:
     obs = env.reset()
     attempts += 1
-    
-    for obj in env.nuts:
-        if obj.name == "SquareNut":
-            qpos = env.sim.data.get_joint_qpos(obj.joints[0])
-            qpos[3:7] = [0, 0, 0, 1] # Fix rotation to 180 degrees
-            env.sim.data.set_joint_qpos(obj.joints[0], qpos)
-            break
-    env.sim.forward()
-    obs = env._get_observations(force_update=True)
-    
     
     ep_obs, ep_next_obs, ep_actions, ep_rewards, ep_not_dones, ep_states = [], [], [], [], [], []
     demo_frames = []
