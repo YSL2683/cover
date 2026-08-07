@@ -108,7 +108,7 @@ def visualize_analysis(rl_latent_path, script_dir):
         goal_w_rl_2d = pca_w.transform(goal_w_rl)
     
     # --- 1. PCA Scatter Plot ---
-    plt.figure(figsize=(14, 6))
+    plt.figure(figsize=(14, 7))
     
     from scipy.stats import gaussian_kde
     import matplotlib.cm as cm
@@ -228,6 +228,120 @@ def visualize_analysis(rl_latent_path, script_dir):
     print(f"PCA Plot saved to {pca_save_path}")
     
 
+def plot_eval_latents(z_f_rl, z_w_rl, script_dir, save_path, step=None, e2c_dir=None):
+    from sklearn.decomposition import PCA
+    from scipy.stats import gaussian_kde
+    import matplotlib.cm as cm
+    import os
+    import torch
+    import numpy as np
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    
+    if e2c_dir is None:
+        print("e2c_dir is not provided. Cannot find demo_latents.pt")
+        return
+        
+    demo_latent_path = os.path.join(e2c_dir, "demo_latents.pt")
+    if not os.path.exists(demo_latent_path):
+        print(f"Demo latent file not found at {demo_latent_path}")
+        return
+        
+    demo_data = torch.load(demo_latent_path, map_location="cpu", weights_only=False)
+    z_f_demo = demo_data["z_demo_front"]
+    z_w_demo = demo_data["z_demo_wrist"]
+    
+    all_z_f_demo = np.concatenate([z.squeeze(0).numpy() for z in z_f_demo], axis=0)
+    all_z_w_demo = np.concatenate([z.squeeze(0).numpy() for z in z_w_demo], axis=0)
+    
+    pca_f = PCA(n_components=2).fit(all_z_f_demo)
+    pca_w = PCA(n_components=2).fit(all_z_w_demo)
+    
+    f_demo_2d = pca_f.transform(all_z_f_demo)
+    w_demo_2d = pca_w.transform(all_z_w_demo)
+    
+    def get_demo_traj_2d(z_demo, pca):
+        traj_2d = []
+        for z in z_demo:
+            arr = z.squeeze(0).numpy()
+            traj_2d.append(pca.transform(arr))
+        return traj_2d
+
+    demo_traj_f_2d = get_demo_traj_2d(z_f_demo, pca_f)
+    demo_traj_w_2d = get_demo_traj_2d(z_w_demo, pca_w)
+    
+    def plot_single(ax, demo_2d, demo_traj_2d, rl_traj_list, title):
+        ax.set_title(title)
+        
+        # KDE for Demo
+        x, y = demo_2d[:, 0], demo_2d[:, 1]
+        xmin, xmax = x.min() - 0.5, x.max() + 0.5
+        ymin, ymax = y.min() - 0.5, y.max() + 0.5
+        X, Y = np.mgrid[xmin:xmax:100j, ymin:ymax:100j]
+        positions = np.vstack([X.ravel(), Y.ravel()])
+        values = np.vstack([x, y])
+        kernel = gaussian_kde(values)
+        Z = np.reshape(kernel(positions).T, X.shape)
+        
+        ax.contourf(X, Y, Z, levels=15, cmap='Oranges', alpha=0.7)
+        
+        cmap_demo = cm.Oranges
+        start_color_demo = cmap_demo(0.4)
+        if demo_traj_2d:
+            for i, traj in enumerate(demo_traj_2d):
+                if i == 0:
+                    ax.scatter(traj[0, 0], traj[0, 1], color=start_color_demo, marker='o', s=80, zorder=6, edgecolors='black', label='ID Demo Start')
+                    ax.scatter(traj[-1, 0], traj[-1, 1], color='darkorange', marker='*', s=150, zorder=7, edgecolors='black', label='ID Demo Goal')
+                else:
+                    ax.scatter(traj[0, 0], traj[0, 1], color=start_color_demo, marker='o', s=80, zorder=6, edgecolors='black')
+                    ax.scatter(traj[-1, 0], traj[-1, 1], color='darkorange', marker='*', s=150, zorder=7, edgecolors='black')
+        
+        # RL Trajectories (Points/Lines)
+        if rl_traj_list:
+            cmap_rl = cm.Blues
+            for i, traj in enumerate(rl_traj_list):
+                if isinstance(traj, list):
+                    traj_numpy = np.stack([z.detach().cpu().squeeze().numpy() for z in traj], axis=0)
+                else:
+                    traj_numpy = traj.detach().cpu().squeeze(0).numpy()
+                    if traj_numpy.ndim == 1:
+                        traj_numpy = np.expand_dims(traj_numpy, 0)
+                
+                traj_2d = pca_f.transform(traj_numpy) if "Front" in title else pca_w.transform(traj_numpy)
+                n_points = len(traj_2d)
+                
+                if i == 0:
+                    ax.scatter(traj_2d[0, 0], traj_2d[0, 1], color=cmap_rl(0.3), marker='^', s=100, zorder=8, edgecolors='black', label='RL Start')
+                    ax.scatter(traj_2d[-1, 0], traj_2d[-1, 1], color='navy', marker='*', s=150, zorder=9, edgecolors='k', label='RL Goal')
+                else:
+                    ax.scatter(traj_2d[0, 0], traj_2d[0, 1], color=cmap_rl(0.3), marker='^', s=100, zorder=8, edgecolors='black')
+                    ax.scatter(traj_2d[-1, 0], traj_2d[-1, 1], color='navy', marker='*', s=150, zorder=9, edgecolors='k')
+                
+                # Points with gradient
+                if n_points > 2:
+                    colors = [cmap_rl(0.3 + 0.7 * (j / n_points)) for j in range(1, n_points - 1)]
+                    ax.scatter(traj_2d[1:-1, 0], traj_2d[1:-1, 1], color=colors, s=20, zorder=5, alpha=0.8, edgecolors='none')
+        
+        ax.set_xlabel("Principal Component 1")
+        ax.set_ylabel("Principal Component 2")
+        ax.grid(True, alpha=0.3)
+        ax.legend(loc='best')
+
+    plt.figure(figsize=(14, 7))
+    ax1 = plt.subplot(1, 2, 1)
+    plot_single(ax1, f_demo_2d, demo_traj_f_2d, z_f_rl, "Front Camera (PCA projected on ID variance)")
+    
+    ax2 = plt.subplot(1, 2, 2)
+    plot_single(ax2, w_demo_2d, demo_traj_w_2d, z_w_rl, "Wrist Camera (PCA projected on ID variance)")
+    
+    if step is not None:
+        plt.suptitle(f"Latent PCA at Step {step}", fontsize=14)
+        
+    plt.tight_layout()
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    plt.savefig(save_path, dpi=150)
+    plt.close()
 
 def main():
     parser = argparse.ArgumentParser()
@@ -247,6 +361,20 @@ def main():
             return
         print("\n--- Starting Advanced PCA & Distance Visualization (Only Plot) ---")
         visualize_analysis(args.latent_path, script_dir)
+        
+        # Test eval visualization logic
+        print("\n--- Testing Eval Visualization Logic ---")
+        try:
+            data = torch.load(args.latent_path, map_location="cpu")
+            z_f_rl = data["z_rl_front"]
+            z_w_rl = data["z_rl_wrist"]
+            e2c_dir = os.path.join(script_dir, "lane/pretrained_e2c/lift")
+            eval_save_path = os.path.join(os.path.dirname(args.latent_path), "test_eval_plot.png")
+            plot_eval_latents(z_f_rl, z_w_rl, script_dir, eval_save_path, step="Offline", e2c_dir=e2c_dir)
+            print(f"Eval PCA Plot successfully generated at {eval_save_path}")
+        except Exception as e:
+            print(f"Failed to test eval visualization logic: {e}")
+            
         return
 
     residual_path_obj = Path(args.residual_policy_path).resolve()

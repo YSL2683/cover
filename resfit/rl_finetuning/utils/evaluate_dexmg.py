@@ -30,6 +30,8 @@ def run_dexmg_evaluation(
     save_q_plots: bool = False,
     run_name: str | None = None,
     output_dir: str | Path | None = "outputs",
+    lane_shaper = None,
+    e2c_dir: str | None = None,
 ) -> tuple[dict[str, float], float]:
     """Extended evaluation to match the richer functionality available in
     the *residual_td3_dexmg* evaluator.  In particular, this version:
@@ -206,6 +208,12 @@ def run_dexmg_evaluation(
     tot_act_buffer: list[list[np.ndarray]] | None = [[] for _ in range(num_envs)] if save_video else None
     all_frames: list[np.ndarray] | None = [] if save_video else None
 
+    # Latent buffers
+    ep_z_f = [[] for _ in range(num_envs)] if lane_shaper is not None else None
+    ep_z_w = [[] for _ in range(num_envs)] if lane_shaper is not None else None
+    all_success_z_f = [] if lane_shaper is not None else None
+    all_success_z_w = [] if lane_shaper is not None else None
+
     done_episodes = 0
     obs, _ = env.reset()
 
@@ -246,6 +254,28 @@ def run_dexmg_evaluation(
                 base_act_buffer[env_idx].append(obs["observation.base_action"][env_idx].detach().cpu().numpy())
                 res_act_buffer[env_idx].append(actions[env_idx].detach().cpu().numpy())
                 tot_act_buffer[env_idx].append(q_actions[env_idx].detach().cpu().numpy())
+
+        # Extract latents -----------------------------------------------
+        if lane_shaper is not None:
+            import sys
+            import os
+            project_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+            if project_dir not in sys.path:
+                sys.path.append(project_dir)
+            from visualize_rl_latents import get_dino_features
+            
+            obs_img = torch.cat([obs["observation.images.frontview"], obs["observation.images.robot0_eye_in_hand"]], dim=1)
+            feat_f, feat_w = get_dino_features(obs_img, lane_shaper.dino, device)
+            with torch.no_grad():
+                if hasattr(lane_shaper, 'e2c_unified') and lane_shaper.e2c_unified is not None:
+                    zf, _ = lane_shaper.e2c_unified.enc(feat_f)
+                    zw, _ = lane_shaper.e2c_unified.enc(feat_w)
+                else:
+                    zf, _ = lane_shaper.e2c_main.enc(feat_f)
+                    zw, _ = lane_shaper.e2c_wrist.enc(feat_w)
+            for env_idx in range(num_envs):
+                ep_z_f[env_idx].append(zf[env_idx].unsqueeze(0).cpu())
+                ep_z_w[env_idx].append(zw[env_idx].unsqueeze(0).cpu())
 
         # --------------------------------------------------------------
         # 3. Per-environment bookkeeping -------------------------------
@@ -290,6 +320,10 @@ def run_dexmg_evaluation(
                 if save_q_plots:
                     all_q_trajectories.append(ep_q_preds[env_idx].copy())
 
+                if is_success and lane_shaper is not None:
+                    all_success_z_f.append(ep_z_f[env_idx].copy())
+                    all_success_z_w.append(ep_z_w[env_idx].copy())
+
                 # Always track episode length for successful episodes logging
                 all_episode_lengths.append(len(ep_q_preds[env_idx]))
 
@@ -333,6 +367,9 @@ def run_dexmg_evaluation(
                 # Reset per-env caches --------------------------------
                 ep_rewards[env_idx].clear()
                 ep_q_preds[env_idx].clear()
+                if lane_shaper is not None:
+                    ep_z_f[env_idx].clear()
+                    ep_z_w[env_idx].clear()
 
                 done_episodes += 1
 
@@ -412,6 +449,25 @@ def run_dexmg_evaluation(
 
         if wandb.run is not None:
             wandb.log({"eval/video": wandb.Video(str(video_path), format="mp4")}, step=global_step)
+
+    # ------------------------------------------------------------------
+    # 7. Latent PCA plotting -------------------------------------------
+    # ------------------------------------------------------------------
+    if lane_shaper is not None and all_success_z_f and run_name is not None:
+        import os
+        from visualize_rl_latents import plot_eval_latents
+        parent = Path(str(output_dir or "outputs")) / run_name.split("__")[0]
+        latent_dir = parent / "latent"
+        latent_dir.mkdir(parents=True, exist_ok=True)
+        
+        plot_name = f"eval_pca_{run_name}_step_{global_step if global_step is not None else 'NA'}.png"
+        plot_path = latent_dir / plot_name
+        
+        project_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+        plot_eval_latents(all_success_z_f, all_success_z_w, project_dir, str(plot_path), step=global_step, e2c_dir=e2c_dir)
+        
+        if wandb.run is not None:
+            wandb.log({"eval/latent_pca": wandb.Image(str(plot_path))}, step=global_step)
 
     # Restore training mode --------------------------------------------
     agent.train(True)

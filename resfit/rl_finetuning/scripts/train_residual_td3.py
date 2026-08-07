@@ -980,6 +980,8 @@ def main(cfg: ResidualTD3DexmgConfig):
             save_q_plots=cfg.save_video,
             run_name=run_name,
             output_dir=outputs_dir,
+            lane_shaper=lane_shaper if "lane_shaper" in locals() else None,
+            e2c_dir=getattr(cfg, "e2c_dir", None),
         )
         print("Evaluation only mode finished. Exiting.")
         import sys
@@ -1147,6 +1149,8 @@ def main(cfg: ResidualTD3DexmgConfig):
                     save_q_plots=cfg.save_video,  # Enable Q-plots when video saving is enabled
                     run_name=run_name,
                     output_dir=outputs_dir,
+                    lane_shaper=lane_shaper if "lane_shaper" in locals() else None,
+                    e2c_dir=getattr(cfg, "e2c_dir", None),
                 )
 
                 # Handle model saving when success rate improves
