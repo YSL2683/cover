@@ -8,7 +8,7 @@ from scipy.spatial.transform import Rotation as R
 
 config = load_controller_config(default_controller="OSC_POSE")
 
-NUM_DEMOS = 20
+NUM_DEMOS = 50
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_FOLDER = os.path.abspath(os.path.join(SCRIPT_DIR, "../demo/robosuite_nut_assembly_square/")) + "/"
 target_folder = ROOT_FOLDER + str(NUM_DEMOS)
@@ -51,7 +51,6 @@ attempts = 0
 while successful_demos < NUM_DEMOS:
     obs = env.reset()
     attempts += 1
-    
     ep_obs, ep_next_obs, ep_actions, ep_rewards, ep_not_dones, ep_states = [], [], [], [], [], []
     demo_frames = []
     
@@ -60,64 +59,80 @@ while successful_demos < NUM_DEMOS:
     ).transpose((2, 0, 1))
     
     stage = 0
-    prev_stage = -1
     stage_counter = 0
     success = False
     
-    for step in range(300):
+    target_yaw_global = 0.0
+    
+    # We will interpolate pitch/roll from the initial values
+    init_roll = None
+    init_pitch = None
+    
+    for step in range(400):
+        if step == 0:
+            initial_R = R.from_quat(obs["robot0_eef_quat"])
+            euler0 = initial_R.as_euler('xyz', degrees=False)
+            init_roll, init_pitch = euler0[0], euler0[1]
+            
+        # Smoothly interpolate target roll/pitch to perfectly vertical over 50 steps
+        alpha = min(1.0, step / 50.0)
+        target_roll_final = np.pi if init_roll > 0 else -np.pi
+        target_roll = init_roll + alpha * (target_roll_final - init_roll)
+        target_pitch = init_pitch + alpha * (0.0 - init_pitch)
         demo_frames.append(obs["frontview_image"][::-1])
         nut_body_id = env.sim.model.body_name2id("SquareNut_main")
         peg_body_id = env.sim.model.body_name2id("peg1")
         
         handle_pos = env.sim.data.site_xpos[env.sim.model.site_name2id("SquareNut_handle_site")]
-        center_pos = env.sim.data.site_xpos[env.sim.model.site_name2id("SquareNut_center_site")]
+        center_pos = env.sim.data.body_xpos[env.sim.model.body_name2id("SquareNut_main")]
         peg_pos = env.sim.data.body_xpos[peg_body_id]
         
-        gripper_pos = np.array(
-            env.sim.data.site_xpos[env.sim.model.site_name2id("gripper0_grip_site")]
-        )
+        gripper_pos = obs["robot0_eef_pos"]
 
         action = np.zeros(7)
-
+        
         if stage == 0:
-            target_pos = handle_pos.copy()
-            target_pos[2] += 0.05
+            vec = handle_pos - center_pos
+            vec[2] = 0
+            vec_dir = vec / (np.linalg.norm(vec) + 1e-6)
+            
+            hole_dir = center_pos - handle_pos
+            # STRICTLY align the X axis to the hole direction so the camera sees the hole
+            target_yaw_global = np.arctan2(hole_dir[1], hole_dir[0])
+        
+            gripper_quat_xyzw = obs["robot0_eef_quat"]
+            gripper_yaw = R.from_quat(gripper_quat_xyzw).as_euler('xyz', degrees=False)[2]
+            yaw_error = (target_yaw_global - gripper_yaw + np.pi) % (2 * np.pi) - np.pi
+            
+            # Target pos calculation moved above
+            target_pos = handle_pos + vec_dir * 0.015
+            target_pos[2] = 0.95
+            
             action[:3] = target_pos - gripper_pos
             action[-1] = -1
             
-            nut_quat = env.sim.data.body_xquat[nut_body_id] # [w, x, y, z]
-            nut_quat_xyzw = np.array([nut_quat[1], nut_quat[2], nut_quat[3], nut_quat[0]])
-            nut_yaw = R.from_quat(nut_quat_xyzw).as_euler('xyz', degrees=False)[2]
-            
-            gripper_quat_xyzw = obs["robot0_eef_quat"]
-            gripper_yaw = R.from_quat(gripper_quat_xyzw).as_euler('xyz', degrees=False)[2]
-            
-            yaw_error = nut_yaw - gripper_yaw
-            yaw_error = (yaw_error + np.pi/2) % np.pi - np.pi/2
-            action[5] = yaw_error * 5.0
-            
-            if np.linalg.norm(action[:3]) < 0.01 and abs(yaw_error) < 0.05:
+
+            if np.linalg.norm(action[:3]) < 0.015 and abs(yaw_error) < 0.08:
                 stage = 1
-            action[:3] *= 5.0
+                
+            # Slow down translation if yaw error is large so it aligns and approaches smoothly
+            speed_factor = 1.0 / (1.0 + abs(yaw_error) * 3.0)
+            action[:3] = np.clip(action[:3] * (5.0 * speed_factor), -0.4, 0.4)
 
         elif stage == 1:
-            target_pos = handle_pos.copy()
+            vec = handle_pos - center_pos
+            vec[2] = 0
+            vec_dir = vec / (np.linalg.norm(vec) + 1e-6)
+            target_pos = handle_pos + vec_dir * 0.015
+            # Go down to grasp
+            target_pos[2] -= 0.01
+            
             action[:3] = target_pos - gripper_pos
             action[-1] = -1
             
-            nut_quat = env.sim.data.body_xquat[nut_body_id]
-            nut_quat_xyzw = np.array([nut_quat[1], nut_quat[2], nut_quat[3], nut_quat[0]])
-            nut_yaw = R.from_quat(nut_quat_xyzw).as_euler('xyz', degrees=False)[2]
-            gripper_quat_xyzw = obs["robot0_eef_quat"]
-            gripper_yaw = R.from_quat(gripper_quat_xyzw).as_euler('xyz', degrees=False)[2]
-            
-            yaw_error = nut_yaw - gripper_yaw
-            yaw_error = (yaw_error + np.pi/2) % np.pi - np.pi/2
-            action[5] = yaw_error * 5.0
-            
-            if np.linalg.norm(action[:3]) < 0.005:
+            if np.linalg.norm(action[:3]) < 0.015:
                 stage = 2
-            action[:3] *= 5.0
+            action[:3] = np.clip(action[:3] * 5.0, -0.4, 0.4)
 
         elif stage == 2:
             action[:] = 0
@@ -147,14 +162,37 @@ while successful_demos < NUM_DEMOS:
             peg_quat = env.sim.data.body_xquat[peg_body_id]
             peg_quat_xyzw = np.array([peg_quat[1], peg_quat[2], peg_quat[3], peg_quat[0]])
             peg_yaw = R.from_quat(peg_quat_xyzw).as_euler('xyz', degrees=False)[2]
-            gripper_quat_xyzw = obs["robot0_eef_quat"]
-            gripper_yaw = R.from_quat(gripper_quat_xyzw).as_euler('xyz', degrees=False)[2]
-            yaw_error = peg_yaw - gripper_yaw
-            yaw_error = (yaw_error + np.pi/2) % np.pi - np.pi/2
-            action[5] = yaw_error * 5.0
+            
+            if stage_counter == 0:
+                gripper_quat_xyzw = obs["robot0_eef_quat"]
+                gripper_yaw = R.from_quat(gripper_quat_xyzw).as_euler('xyz', degrees=False)[2]
+                
+                v_peg = peg_pos[:2] - center_pos[:2]
+                angle_peg = np.arctan2(v_peg[1], v_peg[0])
+                
+                candidates = [peg_yaw + k * np.pi/2 for k in range(4)]
+                best_yaw = candidates[0]
+                min_cost = 10000
+                
+                for c in candidates:
+                    rel_angle = (c - angle_peg + np.pi) % (2 * np.pi) - np.pi
+                    
+                    # Forbid backwards alignment (handle pointing to peg)
+                    # This leaves ONLY Front (abs(rel_angle) <= pi/4) and Side (pi/4 < abs(rel_angle) < 3*pi/4)
+                    if abs(rel_angle) > np.pi * 0.75:
+                        continue
+                        
+                    err = (c - gripper_yaw + np.pi) % (2 * np.pi) - np.pi
+                    total_cost = abs(err)
+                    
+                    if total_cost < min_cost:
+                        min_cost = total_cost
+                        best_yaw = c
+                        
+                target_yaw_global = best_yaw
             
             stage_counter += 1
-            if np.linalg.norm(target_pos - center_pos) < 0.01:
+            if np.linalg.norm(target_pos[:2] - center_pos[:2]) < 0.02 and abs((target_yaw_global - R.from_quat(obs["robot0_eef_quat"]).as_euler('xyz', degrees=False)[2] + np.pi) % (2 * np.pi) - np.pi) < 0.08:
                 stage = 5
                 stage_counter = 0
 
@@ -167,14 +205,7 @@ while successful_demos < NUM_DEMOS:
             action[:3] = np.clip((target_pos - center_pos) * 3.0, -0.4, 0.4)
             action[-1] = 1
             
-            peg_quat = env.sim.data.body_xquat[peg_body_id]
-            peg_quat_xyzw = np.array([peg_quat[1], peg_quat[2], peg_quat[3], peg_quat[0]])
-            peg_yaw = R.from_quat(peg_quat_xyzw).as_euler('xyz', degrees=False)[2]
-            gripper_quat_xyzw = obs["robot0_eef_quat"]
-            gripper_yaw = R.from_quat(gripper_quat_xyzw).as_euler('xyz', degrees=False)[2]
-            yaw_error = peg_yaw - gripper_yaw
-            yaw_error = (yaw_error + np.pi/2) % np.pi - np.pi/2
-            action[5] = yaw_error * 5.0
+            # Uses target_yaw_global computed in stage 4
             
             stage_counter += 1
             if np.linalg.norm(target_pos - center_pos) < 0.01:
@@ -196,6 +227,16 @@ while successful_demos < NUM_DEMOS:
             stage_counter += 1
             if stage_counter >= 10:
                 action[2] = 0
+                
+        R_target = R.from_euler('xyz', [target_roll, target_pitch, target_yaw_global])
+        R_current = R.from_quat(obs["robot0_eef_quat"])
+        rot_err = (R_target * R_current.inv()).as_rotvec()
+        rot_action = rot_err * 5.0
+        max_rot = np.max(np.abs(rot_action))
+        if max_rot > 1.0:
+            rot_action = rot_action / max_rot
+        action[3:6] = rot_action
+        action[:3] = np.clip(action[:3], -1.0, 1.0)
 
         state = np.concatenate([
             obs["robot0_eef_pos"],
@@ -206,6 +247,7 @@ while successful_demos < NUM_DEMOS:
 
         next_obs, r, d, info = env.step(action)
         env.render()
+        demo_frames.append(obs["frontview_image"][::-1])
         
         next_img_obs = np.concatenate(
             [
@@ -223,6 +265,18 @@ while successful_demos < NUM_DEMOS:
             d = True
             success = True
             
+        if d or step == 399:
+            if not success:
+                print(f"Episode failed at stage {stage}, step {step}! Retrying... (Attempts: {attempts})")
+                pos_err = np.linalg.norm(target_pos - gripper_pos)
+                print(f"Failed. Pos err: {pos_err:.4f}, Yaw err: {abs(yaw_error):.4f}")
+                print(f"target_pos: {target_pos}, gripper_pos: {gripper_pos}")
+                print(f"target_yaw: {target_yaw_global}, gripper_yaw: {gripper_yaw}")
+            r_val = 100 if success else -1
+            ep_rewards.append([r_val])
+            ep_not_dones.append([not d])
+            break
+        
         r_val = 100 if success else -1
         ep_rewards.append([r_val])
         ep_not_dones.append([not d])

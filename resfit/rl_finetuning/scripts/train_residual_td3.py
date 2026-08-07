@@ -924,7 +924,9 @@ def main(cfg: ResidualTD3DexmgConfig):
             alpha=getattr(cfg.algo, "reward_alpha", 0.98),
             w_m=getattr(cfg.algo, "reward_w_m", 0.3),
             w_w=getattr(cfg.algo, "reward_w_w", 0.7),
-            gamma=getattr(cfg.algo, "gamma", 0.99)
+            gamma=getattr(cfg.algo, "gamma", 0.99),
+            e2c_mode=getattr(cfg.algo, "e2c_mode", "decoupled"),
+            ref_horizon=getattr(cfg.algo, "ref_horizon", 30.0)
         )
         lane_shaper.precompute_offline_dino()
         lane_shaper.precompute_online_dino(online_rb)
@@ -932,15 +934,22 @@ def main(cfg: ResidualTD3DexmgConfig):
         # Load pretrained E2C to avoid feature collapse
         e2c_dir = cfg.e2c_dir
         if e2c_dir and os.path.exists(e2c_dir):
-            print(f"Loading pretrained E2C weights from {e2c_dir}...")
-            lane_shaper.e2c_main.load_state_dict(torch.load(f"{e2c_dir}/e2c_front.pt", map_location=device))
-            lane_shaper.e2c_wrist.load_state_dict(torch.load(f"{e2c_dir}/e2c_wrist.pt", map_location=device))
-            lane_shaper.e2c_main.train()
-            lane_shaper.e2c_wrist.train()
-            
-            # Unfreeze E2C weights (freeze_e2c flag controls whether update_e2c is called)
-            for p in lane_shaper.e2c_main.parameters(): p.requires_grad = True
-            for p in lane_shaper.e2c_wrist.parameters(): p.requires_grad = True
+            e2c_mode = getattr(cfg.algo, "e2c_mode", "decoupled")
+            if e2c_mode == "unified":
+                print(f"Loading pretrained E2C unified weights from {e2c_dir}...")
+                lane_shaper.e2c_unified.load_state_dict(torch.load(f"{e2c_dir}/e2c_unified.pt", map_location=device))
+                lane_shaper.e2c_unified.train()
+                for p in lane_shaper.e2c_unified.parameters(): p.requires_grad = True
+            else:
+                print(f"Loading pretrained E2C weights from {e2c_dir}...")
+                lane_shaper.e2c_main.load_state_dict(torch.load(f"{e2c_dir}/e2c_front.pt", map_location=device))
+                lane_shaper.e2c_wrist.load_state_dict(torch.load(f"{e2c_dir}/e2c_wrist.pt", map_location=device))
+                lane_shaper.e2c_main.train()
+                lane_shaper.e2c_wrist.train()
+                
+                # Unfreeze E2C weights (freeze_e2c flag controls whether update_e2c is called)
+                for p in lane_shaper.e2c_main.parameters(): p.requires_grad = True
+                for p in lane_shaper.e2c_wrist.parameters(): p.requires_grad = True
             
             lane_shaper.initialized = True
             lane_shaper.initialize_demos()
@@ -1151,10 +1160,14 @@ def main(cfg: ResidualTD3DexmgConfig):
                     torch.save(agent.state_dict(), best_ckpt_path)
                     
                     if lane_shaper is not None:
-                        e2c_main_path = model_save_dir / "e2c_main_best.pt"
-                        torch.save(lane_shaper.e2c_main.state_dict(), e2c_main_path)
-                        e2c_wrist_path = model_save_dir / "e2c_wrist_best.pt"
-                        torch.save(lane_shaper.e2c_wrist.state_dict(), e2c_wrist_path)
+                        if getattr(cfg.algo, "e2c_mode", "decoupled") == "unified":
+                            e2c_unified_path = model_save_dir / "e2c_unified_best.pt"
+                            torch.save(lane_shaper.e2c_unified.state_dict(), e2c_unified_path)
+                        else:
+                            e2c_main_path = model_save_dir / "e2c_main_best.pt"
+                            torch.save(lane_shaper.e2c_main.state_dict(), e2c_main_path)
+                            e2c_wrist_path = model_save_dir / "e2c_wrist_best.pt"
+                            torch.save(lane_shaper.e2c_wrist.state_dict(), e2c_wrist_path)
                     print(f"Saved new best model to {best_ckpt_path}")
                 
                 # Log eval metrics to Tensorboard and WandB
@@ -1258,10 +1271,14 @@ def main(cfg: ResidualTD3DexmgConfig):
             torch.save(agent.state_dict(), ckpt_path)
             
             if lane_shaper is not None:
-                e2c_main_path = model_save_dir / f"e2c_main_{global_step}.pt"
-                torch.save(lane_shaper.e2c_main.state_dict(), e2c_main_path)
-                e2c_wrist_path = model_save_dir / f"e2c_wrist_{global_step}.pt"
-                torch.save(lane_shaper.e2c_wrist.state_dict(), e2c_wrist_path)
+                if getattr(cfg.algo, "e2c_mode", "decoupled") == "unified":
+                    e2c_unified_path = model_save_dir / f"e2c_unified_{global_step}.pt"
+                    torch.save(lane_shaper.e2c_unified.state_dict(), e2c_unified_path)
+                else:
+                    e2c_main_path = model_save_dir / f"e2c_main_{global_step}.pt"
+                    torch.save(lane_shaper.e2c_main.state_dict(), e2c_main_path)
+                    e2c_wrist_path = model_save_dir / f"e2c_wrist_{global_step}.pt"
+                    torch.save(lane_shaper.e2c_wrist.state_dict(), e2c_wrist_path)
             print(f"Saved checkpoint to {ckpt_path}")
             
         if global_step % cfg.log_freq == 0:

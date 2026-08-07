@@ -110,35 +110,118 @@ def visualize_analysis(rl_latent_path, script_dir):
     # --- 1. PCA Scatter Plot ---
     plt.figure(figsize=(14, 6))
     
-    ax1 = plt.subplot(1, 2, 1)
-    ax1.set_title("Front Camera (PCA projected on ID variance)")
-    ax1.scatter(f_demo_2d[:, 0], f_demo_2d[:, 1], color='darkorange', s=20, alpha=0.6, label='ID Demo')
-    ax1.scatter(goal_f_demo_2d[:, 0], goal_f_demo_2d[:, 1], color='orange', marker='*', s=150, zorder=5, edgecolors='k', label='ID Goal')
+    from scipy.stats import gaussian_kde
+    import matplotlib.cm as cm
+
+    def plot_kde_and_trajectories(ax, demo_2d, demo_traj_2d_list, rl_traj_2d_list, goal_demo_2d, title):
+        ax.set_title(title)
+        
+        # 1. KDE for ID Demo
+        x = demo_2d[:, 0]
+        y = demo_2d[:, 1]
+        
+        xmin, xmax = x.min() - 0.5, x.max() + 0.5
+        ymin, ymax = y.min() - 0.5, y.max() + 0.5
+        X, Y = np.mgrid[xmin:xmax:100j, ymin:ymax:100j]
+        positions = np.vstack([X.ravel(), Y.ravel()])
+        values = np.vstack([x, y])
+        kernel = gaussian_kde(values)
+        Z = np.reshape(kernel(positions).T, X.shape)
+        
+        # Plot filled contours (keep the empty background for ID demo)
+        cf = ax.contourf(X, Y, Z, levels=15, cmap='Oranges', alpha=1.0)
+        
+        # 2. Demo Trajectories (Start Markers Only)
+        if demo_traj_2d_list:
+            cmap_demo = cm.Oranges
+            start_color_demo = cmap_demo(0.4)
+            for i, traj in enumerate(demo_traj_2d_list):
+                # Plot start marker only
+                if i == 0:
+                    ax.scatter(traj[0, 0], traj[0, 1], color=start_color_demo, marker='o', s=80, zorder=6, edgecolors='darkorange', label='ID Start')
+                else:
+                    ax.scatter(traj[0, 0], traj[0, 1], color=start_color_demo, marker='o', s=80, zorder=6, edgecolors='darkorange')
+        
+        # Plot Goal for Demo
+        ax.scatter(goal_demo_2d[:, 0], goal_demo_2d[:, 1], color='orange', marker='*', s=150, zorder=7, edgecolors='k', label='ID Goal')
+        
+        # 3. KDE for RL Trajectories
+        if rl_traj_2d_list:
+            cmap_rl = cm.Blues
+            start_color_rl = cmap_rl(0.3)
+            
+            # Gather all RL points for KDE
+            rl_points = np.vstack(rl_traj_2d_list)
+            x_rl = rl_points[:, 0]
+            y_rl = rl_points[:, 1]
+            
+            values_rl = np.vstack([x_rl, y_rl])
+            kernel_rl = gaussian_kde(values_rl)
+            Z_rl = np.reshape(kernel_rl(positions).T, X.shape)
+            
+            # Plot filled contours for RL (transparent blue to mix with orange, keeping empty background)
+            cf_rl = ax.contourf(X, Y, Z_rl, levels=15, cmap='Blues', alpha=0.6)
+            
+            # Plot start and goal markers for RL
+            for i, traj in enumerate(rl_traj_2d_list):
+                # Plot start marker
+                if i == 0:
+                    ax.scatter(traj[0, 0], traj[0, 1], color=start_color_rl, marker='^', s=100, zorder=8, edgecolors='black', label='RL Start')
+                else:
+                    ax.scatter(traj[0, 0], traj[0, 1], color=start_color_rl, marker='^', s=100, zorder=8, edgecolors='black')
+                
+                # Plot end goal
+                if i == 0:
+                    ax.scatter(traj[-1, 0], traj[-1, 1], color='navy', marker='*', s=150, zorder=9, edgecolors='k', label='RL Goal')
+                else:
+                    ax.scatter(traj[-1, 0], traj[-1, 1], color='navy', marker='*', s=150, zorder=9, edgecolors='k')
+
+        ax.set_xlabel("Principal Component 1")
+        ax.set_ylabel("Principal Component 2")
+        ax.grid(True, alpha=0.3)
+        ax.legend(loc='best')
+
+    demo_traj_f_2d = []
+    demo_traj_w_2d = []
+    idx = 0
+    for z in z_f_demo:
+        l = len(z.squeeze(0))
+        demo_traj_f_2d.append(f_demo_2d[idx:idx+l])
+        idx += l
+    idx = 0
+    for z in z_w_demo:
+        l = len(z.squeeze(0))
+        demo_traj_w_2d.append(w_demo_2d[idx:idx+l])
+        idx += l
+
     if num_rl > 0:
-        ax1.scatter(f_rl_2d[:, 0], f_rl_2d[:, 1], color='darkblue', s=20, alpha=0.6, label='RL Success')
-        ax1.scatter(goal_f_rl_2d[:, 0], goal_f_rl_2d[:, 1], color='navy', marker='*', s=150, zorder=5, edgecolors='k', label='RL Goal')
-    ax1.set_xlabel("Principal Component 1")
-    ax1.set_ylabel("Principal Component 2")
-    ax1.grid(True, alpha=0.3)
-    ax1.legend()
+        rl_traj_f_2d = []
+        rl_traj_w_2d = []
+        idx = 0
+        for z in z_f_rl:
+            l = len(z.squeeze(0))
+            rl_traj_f_2d.append(f_rl_2d[idx:idx+l])
+            idx += l
+        idx = 0
+        for z in z_w_rl:
+            l = len(z.squeeze(0))
+            rl_traj_w_2d.append(w_rl_2d[idx:idx+l])
+            idx += l
+    else:
+        rl_traj_f_2d = []
+        rl_traj_w_2d = []
+
+    ax1 = plt.subplot(1, 2, 1)
+    plot_kde_and_trajectories(ax1, f_demo_2d, demo_traj_f_2d, rl_traj_f_2d, goal_f_demo_2d, "Front Camera (PCA projected on ID variance)")
     
     ax2 = plt.subplot(1, 2, 2)
-    ax2.set_title("Wrist Camera (PCA projected on ID variance)")
-    ax2.scatter(w_demo_2d[:, 0], w_demo_2d[:, 1], color='darkorange', s=20, alpha=0.6, label='ID Demo')
-    ax2.scatter(goal_w_demo_2d[:, 0], goal_w_demo_2d[:, 1], color='orange', marker='*', s=150, zorder=5, edgecolors='k', label='ID Goal')
-    if num_rl > 0:
-        ax2.scatter(w_rl_2d[:, 0], w_rl_2d[:, 1], color='darkblue', s=20, alpha=0.6, label='RL Success')
-        ax2.scatter(goal_w_rl_2d[:, 0], goal_w_rl_2d[:, 1], color='navy', marker='*', s=150, zorder=5, edgecolors='k', label='RL Goal')
-    ax2.set_xlabel("Principal Component 1")
-    ax2.set_ylabel("Principal Component 2")
-    ax2.grid(True, alpha=0.3)
-    ax2.legend()
+    plot_kde_and_trajectories(ax2, w_demo_2d, demo_traj_w_2d, rl_traj_w_2d, goal_w_demo_2d, "Wrist Camera (PCA projected on ID variance)")
     
     plt.tight_layout()
     if rl_latent_path:
-        pca_save_path = os.path.join(os.path.dirname(rl_latent_path), "pca_comparison.png")
+        pca_save_path = os.path.join(os.path.dirname(rl_latent_path), "pca_comparison_advanced2.png")
     else:
-        pca_save_path = os.path.join(script_dir, "outputs/pca_comparison.png")
+        pca_save_path = os.path.join(script_dir, "outputs/pca_comparison_advanced2.png")
     
     os.makedirs(os.path.dirname(pca_save_path), exist_ok=True)
     plt.savefig(pca_save_path, dpi=150)
@@ -148,11 +231,23 @@ def visualize_analysis(rl_latent_path, script_dir):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--base_policy_path", type=str, required=True, help="Path to base policy directory")
-    parser.add_argument("--residual_policy_path", type=str, required=True, help="Path to residual agent checkpoint (.pt)")
+    parser.add_argument("--base_policy_path", type=str, required=False, help="Path to base policy directory")
+    parser.add_argument("--residual_policy_path", type=str, required=False, help="Path to residual agent checkpoint (.pt)")
     parser.add_argument("--n_episodes", type=int, default=20, help="Number of successful episodes to collect")
     parser.add_argument("--ood_range", type=float, default=None, help="OOD initialization range in meters (e.g. 0.05 or 0.1). If provided, applies OOD_pos environment setup.")
+    parser.add_argument("--only_plot", action="store_true", help="Only generate plot using existing latents")
+    parser.add_argument("--latent_path", type=str, default=None, help="Path to existing rl_latents.pt when using --only_plot")
     args = parser.parse_args()
+    
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+
+    if args.only_plot:
+        if args.latent_path is None:
+            print("Please provide --latent_path when using --only_plot")
+            return
+        print("\n--- Starting Advanced PCA & Distance Visualization (Only Plot) ---")
+        visualize_analysis(args.latent_path, script_dir)
+        return
 
     residual_path_obj = Path(args.residual_policy_path).resolve()
     run_dir = residual_path_obj.parent.parent

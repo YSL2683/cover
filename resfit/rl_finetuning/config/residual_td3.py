@@ -75,6 +75,9 @@ class ResidualTD3AlgoConfig(RLPDAlgoConfig):
     # Whether to freeze E2C latent space encoder during residual RL (skip update_e2c)
     freeze_e2c: bool = True
     
+    # E2C latent space mode ("decoupled" or "unified")
+    e2c_mode: str = "decoupled"
+    
     # Reward shaping scale factor
     p_reward: float = 1.0
 

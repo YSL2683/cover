@@ -13,7 +13,7 @@ from e2c import MLPE2C
 
 class LaNERewardShaper:
     def __init__(self, device, action_dim, offline_rb, online_rb=None, p_reward=1.0, action_l2_reg_weight=0.0, reward_type="reward_2",
-                 beta=0.5, alpha=0.98, w_m=0.3, w_w=0.7, gamma=0.99):
+                 beta=0.5, alpha=0.98, w_m=0.3, w_w=0.7, gamma=0.99, e2c_mode="decoupled", ref_horizon=30.0):
         self.device = device
         self.p_reward = p_reward
         self.action_l2_reg_weight = action_l2_reg_weight
@@ -23,29 +23,40 @@ class LaNERewardShaper:
         self.w_m = w_m
         self.w_w = w_w
         self.gamma = gamma
+        self.ref_horizon = ref_horizon
         self.offline_rb = offline_rb
         self.online_rb = online_rb
+        self.e2c_mode = e2c_mode
         
         print("Loading DINOv2 model...")
         self.dino = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14_reg").to(device)
         self.dino.eval()
         print("DINOv2 loaded.")
         
-        # Two cameras: front and wrist, 384 dim each for DINOv2 ViT-S
-        self.e2c_main = MLPE2C(
-            obs_shape=(384,), action_dim=action_dim, z_dimension=16, crop_shape=None
-        ).to(device)
-        self.e2c_wrist = MLPE2C(
-            obs_shape=(384,), action_dim=action_dim, z_dimension=16, crop_shape=None
-        ).to(device)
-        
-        self.e2c_main_opt = torch.optim.Adam(self.e2c_main.parameters(), lr=1e-4)
-        self.e2c_wrist_opt = torch.optim.Adam(self.e2c_wrist.parameters(), lr=1e-4)
-        
-        self.z_demo_main_cache = {}
-        self.z_demo_wrist_cache = {}
-        self.ref_one_step_dist_main = None
-        self.ref_one_step_dist_wrist = None
+        if self.e2c_mode == "unified":
+            self.e2c_unified = MLPE2C(
+                obs_shape=(768,), action_dim=action_dim, z_dimension=16, crop_shape=None
+            ).to(device)
+            self.e2c_unified_opt = torch.optim.Adam(self.e2c_unified.parameters(), lr=1e-4)
+            self.z_demo_unified_cache = {}
+            self.ref_one_step_dist_unified = None
+        else:
+            # Two cameras: front and wrist, 384 dim each for DINOv2 ViT-S
+            self.e2c_main = MLPE2C(
+                obs_shape=(384,), action_dim=action_dim, z_dimension=16, crop_shape=None
+            ).to(device)
+            self.e2c_wrist = MLPE2C(
+                obs_shape=(384,), action_dim=action_dim, z_dimension=16, crop_shape=None
+            ).to(device)
+            
+            self.e2c_main_opt = torch.optim.Adam(self.e2c_main.parameters(), lr=1e-4)
+            self.e2c_wrist_opt = torch.optim.Adam(self.e2c_wrist.parameters(), lr=1e-4)
+            
+            self.z_demo_main_cache = {}
+            self.z_demo_wrist_cache = {}
+            self.ref_one_step_dist_main = None
+            self.ref_one_step_dist_wrist = None
+            
         self.initialized = False
         
         dones = offline_rb["next", "done"].squeeze().cpu().numpy()
@@ -192,57 +203,114 @@ class LaNERewardShaper:
         for i in range(num_updates):
             dino_obs, action, dino_next_obs = self._sample_e2c()
             
-            dino_obs_m, dino_obs_w = dino_obs[:, :384], dino_obs[:, 384:]
-            dino_next_obs_m, dino_next_obs_w = dino_next_obs[:, :384], dino_next_obs[:, 384:]
-            
-            mse_w_mult = 384
-            
-            dkl_m, mse_m, ref_kl_m, _ = self.e2c_main(dino_obs_m, action, dino_next_obs_m, None, None)
-            dkl_w, mse_w, ref_kl_w, _ = self.e2c_wrist(dino_obs_w, action, dino_next_obs_w, None, None)
-            
-            loss_m = dkl_m + mse_m * 384 + ref_kl_m
-            loss_w = dkl_w + mse_w * mse_w_mult + ref_kl_w
-            loss = loss_m + loss_w
-            
-            self.e2c_main_opt.zero_grad()
-            self.e2c_wrist_opt.zero_grad()
-            loss.backward()
-            self.e2c_main_opt.step()
-            self.e2c_wrist_opt.step()
-            
-            if mse_tol is not None and ((mse_m + mse_w)/2).item() < mse_tol:
-                break
+            if self.e2c_mode == "unified":
+                dkl_u, mse_u, ref_kl_u, _ = self.e2c_unified(dino_obs, action, dino_next_obs, None, None)
+                loss_u = dkl_u + mse_u * 768 + ref_kl_u
                 
-        return {
-            "lane/e2c_loss_m": loss_m.item(),
-            "lane/e2c_loss_w": loss_w.item(),
-            "lane/e2c_mse_m": mse_m.item(),
-            "lane/e2c_mse_w": mse_w.item(),
-            "lane/e2c_updates": i + 1
-        }
+                self.e2c_unified_opt.zero_grad()
+                loss_u.backward()
+                self.e2c_unified_opt.step()
+                
+                if mse_tol is not None and mse_u.item() < mse_tol:
+                    break
+            else:
+                dino_obs_m, dino_obs_w = dino_obs[:, :384], dino_obs[:, 384:]
+                dino_next_obs_m, dino_next_obs_w = dino_next_obs[:, :384], dino_next_obs[:, 384:]
+                
+                mse_w_mult = 384
+                
+                dkl_m, mse_m, ref_kl_m, _ = self.e2c_main(dino_obs_m, action, dino_next_obs_m, None, None)
+                dkl_w, mse_w, ref_kl_w, _ = self.e2c_wrist(dino_obs_w, action, dino_next_obs_w, None, None)
+                
+                loss_m = dkl_m + mse_m * 384 + ref_kl_m
+                loss_w = dkl_w + mse_w * mse_w_mult + ref_kl_w
+                loss = loss_m + loss_w
+                
+                self.e2c_main_opt.zero_grad()
+                self.e2c_wrist_opt.zero_grad()
+                loss.backward()
+                self.e2c_main_opt.step()
+                self.e2c_wrist_opt.step()
+                
+                if mse_tol is not None and ((mse_m + mse_w)/2).item() < mse_tol:
+                    break
+                
+        if self.e2c_mode == "unified":
+            return {
+                "lane/e2c_loss_u": loss_u.item(),
+                "lane/e2c_mse_u": mse_u.item(),
+                "lane/e2c_updates": i + 1
+            }
+        else:
+            return {
+                "lane/e2c_loss_m": loss_m.item(),
+                "lane/e2c_loss_w": loss_w.item(),
+                "lane/e2c_mse_m": mse_m.item(),
+                "lane/e2c_mse_w": mse_w.item(),
+                "lane/e2c_updates": i + 1
+            }
                 
     def initialize_demos(self):
         one_step_dist_list_main = []
         one_step_dist_list_wrist = []
+        one_step_dist_list_unified = []
         
         for i, (start, end) in enumerate(zip(self.demo_starts, self.demo_ends)):
             batch = self.offline_rb[start:end+1].to(self.device)
             dino_next_obs = batch["next", "dino"]
-            dino_f, dino_w = dino_next_obs[:, :384], dino_next_obs[:, 384:]
             
-            z_m = self.e2c_main.enc(dino_f)[0].unsqueeze(0).detach().cpu().numpy()
-            z_w = self.e2c_wrist.enc(dino_w)[0].unsqueeze(0).detach().cpu().numpy()
-            
-            self.z_demo_main_cache[i] = z_m
-            self.z_demo_wrist_cache[i] = z_w
-            
-            if z_m.shape[1] > 1:
-                one_step_dist_list_main.append(((z_m[0, 1:] - z_m[0, :-1]) ** 2).sum(axis=1).mean())
-                one_step_dist_list_wrist.append(((z_w[0, 1:] - z_w[0, :-1]) ** 2).sum(axis=1).mean())
+            if self.e2c_mode == "unified":
+                z_u = self.e2c_unified.enc(dino_next_obs)[0].unsqueeze(0).detach().cpu().numpy()
+                self.z_demo_unified_cache[i] = z_u
                 
-        self.ref_one_step_dist_main = np.mean(one_step_dist_list_main)
-        self.ref_one_step_dist_wrist = np.mean(one_step_dist_list_wrist)
+                if z_u.shape[1] > 1:
+                    one_step_dist_list_unified.append(((z_u[0, 1:] - z_u[0, :-1]) ** 2).sum(axis=1).mean())
+            else:
+                dino_f, dino_w = dino_next_obs[:, :384], dino_next_obs[:, 384:]
+                
+                z_m = self.e2c_main.enc(dino_f)[0].unsqueeze(0).detach().cpu().numpy()
+                z_w = self.e2c_wrist.enc(dino_w)[0].unsqueeze(0).detach().cpu().numpy()
+                
+                self.z_demo_main_cache[i] = z_m
+                self.z_demo_wrist_cache[i] = z_w
+                
+                if z_m.shape[1] > 1:
+                    one_step_dist_list_main.append(((z_m[0, 1:] - z_m[0, :-1]) ** 2).sum(axis=1).mean())
+                    one_step_dist_list_wrist.append(((z_w[0, 1:] - z_w[0, :-1]) ** 2).sum(axis=1).mean())
+                
+        if self.e2c_mode == "unified":
+            self.ref_one_step_dist_unified = np.mean(one_step_dist_list_unified)
+        else:
+            self.ref_one_step_dist_main = np.mean(one_step_dist_list_main)
+            self.ref_one_step_dist_wrist = np.mean(one_step_dist_list_wrist)
         self.initialized = True
+
+    def _compute_potential_unified(self, dino_tensor):
+        z_pred_u = self.e2c_unified.enc(dino_tensor)[0].unsqueeze(1).detach().cpu().numpy()
+        
+        N = len(dino_tensor)
+        min_dist_u = np.ones(N) * 10000
+        idx_u_best = np.zeros(N)
+        T_demos_u = np.zeros(N)
+        
+        for i in range(len(self.demo_starts)):
+            z_demo_u = self.z_demo_unified_cache[i]
+            z_dist_u = ((z_demo_u - z_pred_u) ** 2).sum(axis=2)
+            z_dist_min_u = z_dist_u.min(axis=1)
+            update_min_u = z_dist_min_u < min_dist_u
+            min_dist_u[update_min_u] = z_dist_min_u[update_min_u]
+            idx_u_best[update_min_u] = z_dist_u.argmin(axis=1)[update_min_u]
+            T_demos_u[update_min_u] = z_dist_u.shape[1]
+            
+        gamma_u = self.beta / ((self.ref_one_step_dist_unified ** 2) + 1e-8)
+        
+        # 4th power kernel
+        S_unified = np.exp(-gamma_u * (min_dist_u ** 2))
+        rem_t_u_norm = self.ref_horizon * (T_demos_u - idx_u_best) / np.maximum(T_demos_u, 1)
+        
+        Phi = np.power(self.alpha, rem_t_u_norm) * S_unified
+        
+        return Phi, S_unified, min_dist_u, rem_t_u_norm
 
     def _compute_potential(self, dino_tensor):
         """Computes the visual potential function Phi(s) for a batch of DINO embeddings."""
@@ -283,12 +351,164 @@ class LaNERewardShaper:
         S_main = np.exp(-gamma_m * (min_dist_m ** 2))
         S_wrist = np.exp(-gamma_w * (min_dist_w ** 2))
         
-        rem_t_m = T_demos_m - idx_m_best
-        rem_t_w = T_demos_w - idx_w_best
+        rem_t_m_norm = self.ref_horizon * (T_demos_m - idx_m_best) / np.maximum(T_demos_m, 1)
+        rem_t_w_norm = self.ref_horizon * (T_demos_w - idx_w_best) / np.maximum(T_demos_w, 1)
         
-        Phi = (self.w_m * np.power(self.alpha, rem_t_m) * S_main) + (self.w_w * np.power(self.alpha, rem_t_w) * S_wrist)
+        Phi = (self.w_m * np.power(self.alpha, rem_t_m_norm) * S_main) + (self.w_w * np.power(self.alpha, rem_t_w_norm) * S_wrist)
         
-        return Phi, S_main, S_wrist, min_dist_m, min_dist_w, rem_t_m, rem_t_w
+        return Phi, S_main, S_wrist, min_dist_m, min_dist_w, rem_t_m_norm, rem_t_w_norm
+
+    def _compute_potential_sync(self, dino_tensor):
+        """Computes the visual potential function Phi(s) using the Max-Similarity timestep synchronization."""
+        dino_m, dino_w = dino_tensor[:, :384], dino_tensor[:, 384:]
+        
+        z_pred_m = self.e2c_main.enc(dino_m)[0].unsqueeze(1).detach().cpu().numpy()
+        z_pred_w = self.e2c_wrist.enc(dino_w)[0].unsqueeze(1).detach().cpu().numpy()
+        
+        N = len(dino_tensor)
+        min_dist_m = np.ones(N) * 10000
+        min_dist_w = np.ones(N) * 10000
+        idx_m_best = np.zeros(N)
+        idx_w_best = np.zeros(N)
+        T_demos_m = np.zeros(N)
+        T_demos_w = np.zeros(N)
+        
+        for i in range(len(self.demo_starts)):
+            z_demo_m = self.z_demo_main_cache[i]
+            z_dist_m = ((z_demo_m - z_pred_m) ** 2).sum(axis=2)
+            z_dist_min_m = z_dist_m.min(axis=1)
+            update_min_m = z_dist_min_m < min_dist_m
+            min_dist_m[update_min_m] = z_dist_min_m[update_min_m]
+            idx_m_best[update_min_m] = z_dist_m.argmin(axis=1)[update_min_m]
+            T_demos_m[update_min_m] = z_dist_m.shape[1]
+            
+            z_demo_w = self.z_demo_wrist_cache[i]
+            z_dist_w = ((z_demo_w - z_pred_w) ** 2).sum(axis=2)
+            z_dist_min_w = z_dist_w.min(axis=1)
+            update_min_w = z_dist_min_w < min_dist_w
+            min_dist_w[update_min_w] = z_dist_min_w[update_min_w]
+            idx_w_best[update_min_w] = z_dist_w.argmin(axis=1)[update_min_w]
+            T_demos_w[update_min_w] = z_dist_w.shape[1]
+            
+        gamma_m = self.beta / ((self.ref_one_step_dist_main ** 2) + 1e-8)
+        gamma_w = self.beta / ((self.ref_one_step_dist_wrist ** 2) + 1e-8)
+        
+        # 4th power kernel: exp(-gamma * d^4)
+        S_main = np.exp(-gamma_m * (min_dist_m ** 2))
+        S_wrist = np.exp(-gamma_w * (min_dist_w ** 2))
+        
+        rem_t_m_norm = self.ref_horizon * (T_demos_m - idx_m_best) / np.maximum(T_demos_m, 1)
+        rem_t_w_norm = self.ref_horizon * (T_demos_w - idx_w_best) / np.maximum(T_demos_w, 1)
+        
+        # Max-Similarity Time Sync
+        rem_t_sync_norm = np.where(S_main >= S_wrist, rem_t_m_norm, rem_t_w_norm)
+        
+        # PBRS Potential with synced time discounting
+        Phi = (self.w_m * S_main + self.w_w * S_wrist) * np.power(self.alpha, rem_t_sync_norm)
+        
+        return Phi, S_main, S_wrist, min_dist_m, min_dist_w, rem_t_m_norm, rem_t_w_norm, rem_t_sync_norm
+
+    def _compute_potential_softsync(self, dino_tensor):
+        """Computes the visual potential function Phi(s) using Softmax-Similarity timestep synchronization."""
+        dino_m, dino_w = dino_tensor[:, :384], dino_tensor[:, 384:]
+        
+        z_pred_m = self.e2c_main.enc(dino_m)[0].unsqueeze(1).detach().cpu().numpy()
+        z_pred_w = self.e2c_wrist.enc(dino_w)[0].unsqueeze(1).detach().cpu().numpy()
+        
+        N = len(dino_tensor)
+        min_dist_m = np.ones(N) * 10000
+        min_dist_w = np.ones(N) * 10000
+        idx_m_best = np.zeros(N)
+        idx_w_best = np.zeros(N)
+        T_demos_m = np.zeros(N)
+        T_demos_w = np.zeros(N)
+        
+        for i in range(len(self.demo_starts)):
+            z_demo_m = self.z_demo_main_cache[i]
+            z_dist_m = ((z_demo_m - z_pred_m) ** 2).sum(axis=2)
+            z_dist_min_m = z_dist_m.min(axis=1)
+            update_min_m = z_dist_min_m < min_dist_m
+            min_dist_m[update_min_m] = z_dist_min_m[update_min_m]
+            idx_m_best[update_min_m] = z_dist_m.argmin(axis=1)[update_min_m]
+            T_demos_m[update_min_m] = z_dist_m.shape[1]
+            
+            z_demo_w = self.z_demo_wrist_cache[i]
+            z_dist_w = ((z_demo_w - z_pred_w) ** 2).sum(axis=2)
+            z_dist_min_w = z_dist_w.min(axis=1)
+            update_min_w = z_dist_min_w < min_dist_w
+            min_dist_w[update_min_w] = z_dist_min_w[update_min_w]
+            idx_w_best[update_min_w] = z_dist_w.argmin(axis=1)[update_min_w]
+            T_demos_w[update_min_w] = z_dist_w.shape[1]
+            
+        gamma_m = self.beta / ((self.ref_one_step_dist_main ** 2) + 1e-8)
+        gamma_w = self.beta / ((self.ref_one_step_dist_wrist ** 2) + 1e-8)
+        
+        # 4th power kernel: exp(-gamma * d^4)
+        S_main = np.exp(-gamma_m * (min_dist_m ** 2))
+        S_wrist = np.exp(-gamma_w * (min_dist_w ** 2))
+        
+        rem_t_m_norm = self.ref_horizon * (T_demos_m - idx_m_best) / np.maximum(T_demos_m, 1)
+        rem_t_w_norm = self.ref_horizon * (T_demos_w - idx_w_best) / np.maximum(T_demos_w, 1)
+        
+        # Soft-Similarity Time Sync
+        sum_S = S_main + S_wrist + 1e-8
+        rem_t_softsync_norm = (S_main * rem_t_m_norm + S_wrist * rem_t_w_norm) / sum_S
+        
+        # PBRS Potential with soft-synced time discounting
+        Phi = (self.w_m * S_main + self.w_w * S_wrist) * np.power(self.alpha, rem_t_softsync_norm)
+        
+        return Phi, S_main, S_wrist, min_dist_m, min_dist_w, rem_t_m_norm, rem_t_w_norm, rem_t_softsync_norm
+
+
+    def _compute_potential_max(self, dino_tensor):
+        """Computes the visual potential function Phi(s) using the maximum of the two remaining timesteps."""
+        dino_m, dino_w = dino_tensor[:, :384], dino_tensor[:, 384:]
+        
+        z_pred_m = self.e2c_main.enc(dino_m)[0].unsqueeze(1).detach().cpu().numpy()
+        z_pred_w = self.e2c_wrist.enc(dino_w)[0].unsqueeze(1).detach().cpu().numpy()
+        
+        N = len(dino_tensor)
+        min_dist_m = np.ones(N) * 10000
+        min_dist_w = np.ones(N) * 10000
+        idx_m_best = np.zeros(N)
+        idx_w_best = np.zeros(N)
+        T_demos_m = np.zeros(N)
+        T_demos_w = np.zeros(N)
+        
+        for i in range(len(self.demo_starts)):
+            z_demo_m = self.z_demo_main_cache[i]
+            z_dist_m = ((z_demo_m - z_pred_m) ** 2).sum(axis=2)
+            z_dist_min_m = z_dist_m.min(axis=1)
+            update_min_m = z_dist_min_m < min_dist_m
+            min_dist_m[update_min_m] = z_dist_min_m[update_min_m]
+            idx_m_best[update_min_m] = z_dist_m.argmin(axis=1)[update_min_m]
+            T_demos_m[update_min_m] = z_dist_m.shape[1]
+            
+            z_demo_w = self.z_demo_wrist_cache[i]
+            z_dist_w = ((z_demo_w - z_pred_w) ** 2).sum(axis=2)
+            z_dist_min_w = z_dist_w.min(axis=1)
+            update_min_w = z_dist_min_w < min_dist_w
+            min_dist_w[update_min_w] = z_dist_min_w[update_min_w]
+            idx_w_best[update_min_w] = z_dist_w.argmin(axis=1)[update_min_w]
+            T_demos_w[update_min_w] = z_dist_w.shape[1]
+            
+        gamma_m = self.beta / ((self.ref_one_step_dist_main ** 2) + 1e-8)
+        gamma_w = self.beta / ((self.ref_one_step_dist_wrist ** 2) + 1e-8)
+        
+        # 4th power kernel: exp(-gamma * d^4)
+        S_main = np.exp(-gamma_m * (min_dist_m ** 2))
+        S_wrist = np.exp(-gamma_w * (min_dist_w ** 2))
+        
+        rem_t_m_norm = self.ref_horizon * (T_demos_m - idx_m_best) / np.maximum(T_demos_m, 1)
+        rem_t_w_norm = self.ref_horizon * (T_demos_w - idx_w_best) / np.maximum(T_demos_w, 1)
+        
+        # Max Time Sync (Conservative approach)
+        rem_t_max_norm = np.maximum(rem_t_m_norm, rem_t_w_norm)
+        
+        # PBRS Potential with max time discounting
+        Phi = (self.w_m * S_main + self.w_w * S_wrist) * np.power(self.alpha, rem_t_max_norm)
+        
+        return Phi, S_main, S_wrist, min_dist_m, min_dist_w, rem_t_m_norm, rem_t_w_norm, rem_t_max_norm
 
     def _compute_potential_2squared(self, dino_tensor):
         """Computes visual potential Phi(s) using a 2nd-power (squared-distance) RBF kernel.
@@ -334,12 +554,12 @@ class LaNERewardShaper:
         S_main = np.exp(-gamma_m * min_dist_m)
         S_wrist = np.exp(-gamma_w * min_dist_w)
         
-        rem_t_m = T_demos_m - idx_m_best
-        rem_t_w = T_demos_w - idx_w_best
+        rem_t_m_norm = self.ref_horizon * (T_demos_m - idx_m_best) / np.maximum(T_demos_m, 1)
+        rem_t_w_norm = self.ref_horizon * (T_demos_w - idx_w_best) / np.maximum(T_demos_w, 1)
         
-        Phi = (self.w_m * np.power(self.alpha, rem_t_m) * S_main) + (self.w_w * np.power(self.alpha, rem_t_w) * S_wrist)
+        Phi = (self.w_m * np.power(self.alpha, rem_t_m_norm) * S_main) + (self.w_w * np.power(self.alpha, rem_t_w_norm) * S_wrist)
         
-        return Phi, S_main, S_wrist, min_dist_m, min_dist_w, rem_t_m, rem_t_w
+        return Phi, S_main, S_wrist, min_dist_m, min_dist_w, rem_t_m_norm, rem_t_w_norm
 
     def shape_reward(self, batch, step):
         if self.p_reward == 0 or self.reward_type.lower() == "none":
@@ -348,44 +568,40 @@ class LaNERewardShaper:
         if not self.initialized:
             self.initialize_demos()
             
-        # compute for the current batch
-        dino_next_obs = batch["next", "dino"]
-        not_done = ~batch["nonterminal"].squeeze()
-        
-        dino_m, dino_w = dino_next_obs[:, :384], dino_next_obs[:, 384:]
-        
-        z_pred_m = self.e2c_main.enc(dino_m)[0].unsqueeze(1).detach().cpu().numpy()
-        z_pred_w = self.e2c_wrist.enc(dino_w)[0].unsqueeze(1).detach().cpu().numpy()
-        
-        N = len(dino_next_obs)
-        min_dist_m = np.ones(N) * 10000
-        min_dist_w = np.ones(N) * 10000
-        idx_m_best = np.zeros(N)
-        idx_w_best = np.zeros(N)
-        T_demos_m = np.zeros(N)
-        T_demos_w = np.zeros(N)
-        
-        for i in range(len(self.demo_starts)):
-            z_demo_m = self.z_demo_main_cache[i]
-            z_dist_m = ((z_demo_m - z_pred_m) ** 2).sum(axis=2)
-            z_dist_min_m = z_dist_m.min(axis=1)
-            update_min_m = z_dist_min_m < min_dist_m
-            min_dist_m[update_min_m] = z_dist_min_m[update_min_m]
-            idx_m_best[update_min_m] = z_dist_m.argmin(axis=1)[update_min_m]
-            T_demos_m[update_min_m] = z_dist_m.shape[1]
-            
-            z_demo_w = self.z_demo_wrist_cache[i]
-            z_dist_w = ((z_demo_w - z_pred_w) ** 2).sum(axis=2)
-            z_dist_min_w = z_dist_w.min(axis=1)
-            update_min_w = z_dist_min_w < min_dist_w
-            min_dist_w[update_min_w] = z_dist_min_w[update_min_w]
-            idx_w_best[update_min_w] = z_dist_w.argmin(axis=1)[update_min_w]
-            T_demos_w[update_min_w] = z_dist_w.shape[1]
-            
-
-
-            
         if self.reward_type == "reward_1":
+            dino_next_obs = batch["next", "dino"]
+            not_done = ~batch["nonterminal"].squeeze()
+            
+            dino_m, dino_w = dino_next_obs[:, :384], dino_next_obs[:, 384:]
+            
+            z_pred_m = self.e2c_main.enc(dino_m)[0].unsqueeze(1).detach().cpu().numpy()
+            z_pred_w = self.e2c_wrist.enc(dino_w)[0].unsqueeze(1).detach().cpu().numpy()
+            
+            N = len(dino_next_obs)
+            min_dist_m = np.ones(N) * 10000
+            min_dist_w = np.ones(N) * 10000
+            idx_m_best = np.zeros(N)
+            idx_w_best = np.zeros(N)
+            T_demos_m = np.zeros(N)
+            T_demos_w = np.zeros(N)
+            
+            for i in range(len(self.demo_starts)):
+                z_demo_m = self.z_demo_main_cache[i]
+                z_dist_m = ((z_demo_m - z_pred_m) ** 2).sum(axis=2)
+                z_dist_min_m = z_dist_m.min(axis=1)
+                update_min_m = z_dist_min_m < min_dist_m
+                min_dist_m[update_min_m] = z_dist_min_m[update_min_m]
+                idx_m_best[update_min_m] = z_dist_m.argmin(axis=1)[update_min_m]
+                T_demos_m[update_min_m] = z_dist_m.shape[1]
+                
+                z_demo_w = self.z_demo_wrist_cache[i]
+                z_dist_w = ((z_demo_w - z_pred_w) ** 2).sum(axis=2)
+                z_dist_min_w = z_dist_w.min(axis=1)
+                update_min_w = z_dist_min_w < min_dist_w
+                min_dist_w[update_min_w] = z_dist_min_w[update_min_w]
+                idx_w_best[update_min_w] = z_dist_w.argmin(axis=1)[update_min_w]
+                T_demos_w[update_min_w] = z_dist_w.shape[1]
+
             not_done_np = not_done.detach().cpu().numpy().flatten()
             mask_m = (min_dist_m < self.ref_one_step_dist_main) & not_done_np
             mask_w = (min_dist_w < self.ref_one_step_dist_wrist) & not_done_np
@@ -437,6 +653,36 @@ class LaNERewardShaper:
             }
             
         elif self.reward_type == "reward_2":
+            dino_next_obs = batch["next", "dino"]
+            dino_m, dino_w = dino_next_obs[:, :384], dino_next_obs[:, 384:]
+            z_pred_m = self.e2c_main.enc(dino_m)[0].unsqueeze(1).detach().cpu().numpy()
+            z_pred_w = self.e2c_wrist.enc(dino_w)[0].unsqueeze(1).detach().cpu().numpy()
+            
+            N = len(dino_next_obs)
+            min_dist_m = np.ones(N) * 10000
+            min_dist_w = np.ones(N) * 10000
+            idx_m_best = np.zeros(N)
+            idx_w_best = np.zeros(N)
+            T_demos_m = np.zeros(N)
+            T_demos_w = np.zeros(N)
+            
+            for i in range(len(self.demo_starts)):
+                z_demo_m = self.z_demo_main_cache[i]
+                z_dist_m = ((z_demo_m - z_pred_m) ** 2).sum(axis=2)
+                z_dist_min_m = z_dist_m.min(axis=1)
+                update_min_m = z_dist_min_m < min_dist_m
+                min_dist_m[update_min_m] = z_dist_min_m[update_min_m]
+                idx_m_best[update_min_m] = z_dist_m.argmin(axis=1)[update_min_m]
+                T_demos_m[update_min_m] = z_dist_m.shape[1]
+                
+                z_demo_w = self.z_demo_wrist_cache[i]
+                z_dist_w = ((z_demo_w - z_pred_w) ** 2).sum(axis=2)
+                z_dist_min_w = z_dist_w.min(axis=1)
+                update_min_w = z_dist_min_w < min_dist_w
+                min_dist_w[update_min_w] = z_dist_min_w[update_min_w]
+                idx_w_best[update_min_w] = z_dist_w.argmin(axis=1)[update_min_w]
+                T_demos_w[update_min_w] = z_dist_w.shape[1]
+            
             # -------------------------------------------------------------
             # Reward 2: Continuous RBF Kernel with 4th power distance
             # -------------------------------------------------------------
@@ -503,6 +749,162 @@ class LaNERewardShaper:
                 "lane/ref_one_step_dist_wrist": self.ref_one_step_dist_wrist
             }
             
+        elif self.reward_type == "reward_pbrs_sync":
+            # -------------------------------------------------------------
+            # Potential-Based Reward Shaping (PBRS) with Max-Similarity Time Sync
+            # -------------------------------------------------------------
+            Phi_next, S_main_next, S_wrist_next, min_dist_m_next, min_dist_w_next, rem_t_m_next, rem_t_w_next, rem_t_sync_next = self._compute_potential_sync(batch["next", "dino"])
+            Phi_curr, S_main_curr, S_wrist_curr, min_dist_m_curr, min_dist_w_curr, rem_t_m_curr, rem_t_w_curr, rem_t_sync_curr = self._compute_potential_sync(batch["dino"])
+            
+            gamma_env = self.gamma
+            nonterminal_mask = batch["nonterminal"].squeeze().detach().cpu().numpy()
+            
+            r_dense = (gamma_env * Phi_next * nonterminal_mask - Phi_curr) * self.p_reward
+            
+            add_rew = torch.as_tensor(r_dense, device=self.device, dtype=torch.float32).view(batch["next", "reward"].shape)
+            batch["next", "reward"] += add_rew
+            
+            action_l2_penalty_mean = 0.0
+            if self.action_l2_reg_weight > 0:
+                a_total = batch["action"]
+                a_base = batch["obs", "observation.base_action"]
+                a_res = a_total - a_base
+                action_l2 = (a_res ** 2).sum(dim=-1)
+                
+                S_joint = torch.as_tensor(S_main_next * S_wrist_next, device=self.device, dtype=torch.float32)
+                r_reg = self.action_l2_reg_weight * S_joint * action_l2
+                r_reg = r_reg.view(batch["next", "reward"].shape)
+                
+                batch["next", "reward"] -= r_reg
+                action_l2_penalty_mean = r_reg.mean().item()
+                
+            return {
+                "lane/Phi_next_avg": Phi_next.mean(),
+                "lane/Phi_curr_avg": Phi_curr.mean(),
+                "lane/Phi_next_hist": wandb.Histogram(Phi_next),
+                "lane/PBRS_dense_avg": r_dense.mean(),
+                "lane/PBRS_dense_min": r_dense.min(),
+                "lane/PBRS_dense_max": r_dense.max(),
+                "lane/PBRS_dense_hist": wandb.Histogram(r_dense),
+                "lane/S_main_next_avg": S_main_next.mean(),
+                "lane/S_main_next_hist": wandb.Histogram(S_main_next),
+                "lane/S_wrist_next_avg": S_wrist_next.mean(),
+                "lane/S_wrist_next_hist": wandb.Histogram(S_wrist_next),
+                "lane/min_dist_main_next_avg": min_dist_m_next.mean(),
+                "lane/min_dist_wrist_next_avg": min_dist_w_next.mean(),
+                "lane/rem_t_main_next_avg": rem_t_m_next.mean(),
+                "lane/rem_t_wrist_next_avg": rem_t_w_next.mean(),
+                "lane/rem_t_sync_next_avg": rem_t_sync_next.mean(),
+                "lane/rem_t_sync_next_hist": wandb.Histogram(rem_t_sync_next),
+                "lane/action_l2_penalty": action_l2_penalty_mean,
+                "lane/ref_one_step_dist_main": self.ref_one_step_dist_main,
+                "lane/ref_one_step_dist_wrist": self.ref_one_step_dist_wrist
+            }
+
+        elif self.reward_type == "reward_pbrs_softsync":
+            # -------------------------------------------------------------
+            # Potential-Based Reward Shaping (PBRS) with Soft-Similarity Time Sync
+            # -------------------------------------------------------------
+            Phi_next, S_main_next, S_wrist_next, min_dist_m_next, min_dist_w_next, rem_t_m_next, rem_t_w_next, rem_t_sync_next = self._compute_potential_softsync(batch["next", "dino"])
+            Phi_curr, S_main_curr, S_wrist_curr, min_dist_m_curr, min_dist_w_curr, rem_t_m_curr, rem_t_w_curr, rem_t_sync_curr = self._compute_potential_softsync(batch["dino"])
+            
+            gamma_env = self.gamma
+            nonterminal_mask = batch["nonterminal"].squeeze().detach().cpu().numpy()
+            
+            r_dense = (gamma_env * Phi_next * nonterminal_mask - Phi_curr) * self.p_reward
+            
+            add_rew = torch.as_tensor(r_dense, device=self.device, dtype=torch.float32).view(batch["next", "reward"].shape)
+            batch["next", "reward"] += add_rew
+            
+            action_l2_penalty_mean = 0.0
+            if self.action_l2_reg_weight > 0:
+                a_total = batch["action"]
+                a_base = batch["obs", "observation.base_action"]
+                a_res = a_total - a_base
+                action_l2 = (a_res ** 2).sum(dim=-1)
+                
+                S_joint = torch.as_tensor(S_main_next * S_wrist_next, device=self.device, dtype=torch.float32)
+                r_reg = self.action_l2_reg_weight * S_joint * action_l2
+                r_reg = r_reg.view(batch["next", "reward"].shape)
+                
+                batch["next", "reward"] -= r_reg
+                action_l2_penalty_mean = r_reg.mean().item()
+                
+            return {
+                "lane/Phi_next_avg": Phi_next.mean(),
+                "lane/Phi_curr_avg": Phi_curr.mean(),
+                "lane/Phi_next_hist": wandb.Histogram(Phi_next),
+                "lane/PBRS_dense_avg": r_dense.mean(),
+                "lane/PBRS_dense_min": r_dense.min(),
+                "lane/PBRS_dense_max": r_dense.max(),
+                "lane/PBRS_dense_hist": wandb.Histogram(r_dense),
+                "lane/S_main_next_avg": S_main_next.mean(),
+                "lane/S_main_next_hist": wandb.Histogram(S_main_next),
+                "lane/S_wrist_next_avg": S_wrist_next.mean(),
+                "lane/S_wrist_next_hist": wandb.Histogram(S_wrist_next),
+                "lane/min_dist_main_next_avg": min_dist_m_next.mean(),
+                "lane/min_dist_wrist_next_avg": min_dist_w_next.mean(),
+                "lane/rem_t_main_next_avg": rem_t_m_next.mean(),
+                "lane/rem_t_wrist_next_avg": rem_t_w_next.mean(),
+                "lane/rem_t_softsync_next_avg": rem_t_sync_next.mean(),
+                "lane/rem_t_softsync_next_hist": wandb.Histogram(rem_t_sync_next),
+                "lane/action_l2_penalty": action_l2_penalty_mean,
+                "lane/ref_one_step_dist_main": self.ref_one_step_dist_main,
+                "lane/ref_one_step_dist_wrist": self.ref_one_step_dist_wrist
+            }
+
+        elif self.reward_type == "reward_pbrs_max":
+            # -------------------------------------------------------------
+            # Potential-Based Reward Shaping (PBRS) with Max Time Sync
+            # -------------------------------------------------------------
+            Phi_next, S_main_next, S_wrist_next, min_dist_m_next, min_dist_w_next, rem_t_m_next, rem_t_w_next, rem_t_max_next = self._compute_potential_max(batch["next", "dino"])
+            Phi_curr, S_main_curr, S_wrist_curr, min_dist_m_curr, min_dist_w_curr, rem_t_m_curr, rem_t_w_curr, rem_t_max_curr = self._compute_potential_max(batch["dino"])
+            
+            gamma_env = self.gamma
+            nonterminal_mask = batch["nonterminal"].squeeze().detach().cpu().numpy()
+            
+            r_dense = (gamma_env * Phi_next * nonterminal_mask - Phi_curr) * self.p_reward
+            
+            add_rew = torch.as_tensor(r_dense, device=self.device, dtype=torch.float32).view(batch["next", "reward"].shape)
+            batch["next", "reward"] += add_rew
+            
+            action_l2_penalty_mean = 0.0
+            if self.action_l2_reg_weight > 0:
+                a_total = batch["action"]
+                a_base = batch["obs", "observation.base_action"]
+                a_res = a_total - a_base
+                action_l2 = (a_res ** 2).sum(dim=-1)
+                
+                S_joint = torch.as_tensor(S_main_next * S_wrist_next, device=self.device, dtype=torch.float32)
+                r_reg = self.action_l2_reg_weight * S_joint * action_l2
+                r_reg = r_reg.view(batch["next", "reward"].shape)
+                
+                batch["next", "reward"] -= r_reg
+                action_l2_penalty_mean = r_reg.mean().item()
+                
+            return {
+                "lane/Phi_next_avg": Phi_next.mean(),
+                "lane/Phi_curr_avg": Phi_curr.mean(),
+                "lane/Phi_next_hist": wandb.Histogram(Phi_next),
+                "lane/PBRS_dense_avg": r_dense.mean(),
+                "lane/PBRS_dense_min": r_dense.min(),
+                "lane/PBRS_dense_max": r_dense.max(),
+                "lane/PBRS_dense_hist": wandb.Histogram(r_dense),
+                "lane/S_main_next_avg": S_main_next.mean(),
+                "lane/S_main_next_hist": wandb.Histogram(S_main_next),
+                "lane/S_wrist_next_avg": S_wrist_next.mean(),
+                "lane/S_wrist_next_hist": wandb.Histogram(S_wrist_next),
+                "lane/min_dist_main_next_avg": min_dist_m_next.mean(),
+                "lane/min_dist_wrist_next_avg": min_dist_w_next.mean(),
+                "lane/rem_t_main_next_avg": rem_t_m_next.mean(),
+                "lane/rem_t_wrist_next_avg": rem_t_w_next.mean(),
+                "lane/rem_t_max_next_avg": rem_t_max_next.mean(),
+                "lane/rem_t_max_next_hist": wandb.Histogram(rem_t_max_next),
+                "lane/action_l2_penalty": action_l2_penalty_mean,
+                "lane/ref_one_step_dist_main": self.ref_one_step_dist_main,
+                "lane/ref_one_step_dist_wrist": self.ref_one_step_dist_wrist
+            }
+
         elif self.reward_type == "reward_pbrs":
             # -------------------------------------------------------------
             # Potential-Based Reward Shaping (PBRS)
@@ -620,4 +1022,46 @@ class LaNERewardShaper:
                 "lane/action_l2_penalty": action_l2_penalty_mean,
                 "lane/ref_one_step_dist_main": self.ref_one_step_dist_main,
                 "lane/ref_one_step_dist_wrist": self.ref_one_step_dist_wrist
+            }
+
+        elif self.reward_type == "reward_pbrs_unified":
+            Phi_next, S_unified_next, min_dist_u_next, rem_t_u_next = self._compute_potential_unified(batch["next", "dino"])
+            Phi_curr, S_unified_curr, min_dist_u_curr, rem_t_u_curr = self._compute_potential_unified(batch["dino"])
+            
+            gamma_env = self.gamma
+            nonterminal_mask = batch["nonterminal"].squeeze().detach().cpu().numpy()
+            
+            r_dense = (gamma_env * Phi_next * nonterminal_mask - Phi_curr) * self.p_reward
+            
+            add_rew = torch.as_tensor(r_dense, device=self.device, dtype=torch.float32).view(batch["next", "reward"].shape)
+            batch["next", "reward"] += add_rew
+            
+            action_l2_penalty_mean = 0.0
+            if self.action_l2_reg_weight > 0:
+                a_total = batch["action"]
+                a_base = batch["obs", "observation.base_action"]
+                a_res = a_total - a_base
+                action_l2 = (a_res ** 2).sum(dim=-1)
+                
+                S_joint = torch.as_tensor(S_unified_next, device=self.device, dtype=torch.float32)
+                r_reg = self.action_l2_reg_weight * S_joint * action_l2
+                r_reg = r_reg.view(batch["next", "reward"].shape)
+                
+                batch["next", "reward"] -= r_reg
+                action_l2_penalty_mean = r_reg.mean().item()
+                
+            return {
+                "lane/Phi_next_avg": Phi_next.mean(),
+                "lane/Phi_curr_avg": Phi_curr.mean(),
+                "lane/Phi_next_hist": wandb.Histogram(Phi_next),
+                "lane/PBRS_dense_avg": r_dense.mean(),
+                "lane/PBRS_dense_min": r_dense.min(),
+                "lane/PBRS_dense_max": r_dense.max(),
+                "lane/PBRS_dense_hist": wandb.Histogram(r_dense),
+                "lane/S_unified_next_avg": S_unified_next.mean(),
+                "lane/S_unified_next_hist": wandb.Histogram(S_unified_next),
+                "lane/min_dist_unified_next_avg": min_dist_u_next.mean(),
+                "lane/rem_t_unified_next_avg": rem_t_u_next.mean(),
+                "lane/action_l2_penalty": action_l2_penalty_mean,
+                "lane/ref_one_step_dist_unified": self.ref_one_step_dist_unified
             }

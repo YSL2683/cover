@@ -8,7 +8,7 @@ bc_run_*
 deps/
 resfit/my_lerobot_data/
 lane/demo/
-lane/pretrained_e2c/
+lane/pretrained_e2c*
 old_experiments/
 scratch/
 run_fixed_150k/
