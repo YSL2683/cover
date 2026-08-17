@@ -263,10 +263,30 @@ class DisturbanceConfig:
     fixed_angle: float | None = None
 
 @dataclass
+class VisualOodConfig:
+    table_color: str = "default"
+    cube_color: str = "default"
+
+@dataclass
+class CameraOodConfig:
+    camera_name: str = "frontview"
+    offset_pos: list[float] | None = None
+    set_quat: list[float] | None = None
+
+@dataclass
+class RobotPoseOodConfig:
+    qpos_offset: list[float] | None = None
+    base_pos_offset: list[float] | None = None
+    qpos_noise_range: float | None = None
+
+@dataclass
 class EnvModifierConfig:
-    mode: str = "default"  # e.g., "default", "ood_position", "visual_ood"
+    mode: str = "default"  # e.g., "default", "ood_position", "visual_ood", "camera_ood", "robot_pose_ood"
     ood_position: OodPositionConfig = field(default_factory=OodPositionConfig)
     disturbance: DisturbanceConfig | None = field(default_factory=DisturbanceConfig)
+    visual_ood: VisualOodConfig | None = field(default_factory=VisualOodConfig)
+    camera_ood: CameraOodConfig | None = field(default_factory=CameraOodConfig)
+    robot_pose_ood: RobotPoseOodConfig | None = field(default_factory=RobotPoseOodConfig)
 
 
 @dataclass

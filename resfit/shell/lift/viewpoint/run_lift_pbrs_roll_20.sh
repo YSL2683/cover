@@ -1,5 +1,6 @@
 #!/bin/bash
-# Script to run Residual TD3 with Potential-Based Reward Shaping (PBRS) WITHOUT Action Regularization (Ablation)
+# Script to run Residual TD3 with Potential-Based Reward Shaping (PBRS)
+# Environment: 5x5cm initialization with frontview camera shifted by +20cm in Y axis
 
 # Default parameters
 REWARD_TYPE="reward_pbrs"
@@ -7,22 +8,46 @@ BETA=1.0
 ALPHA=0.98
 W_M=0.3
 W_W=0.7
-P_REWARD=100.0
+P_REWARD=100.0  # Increased scaling factor for PBRS difference magnitude
 SEED=42
 FREEZE_E2C="True"
 BASE_POLICY_PATH="resfit/my_lerobot_data/bc_run_2026-07-30_16-20-35_lane_lift_id_20_aligned_diffusion/policy_step_5000/policy"
 E2C_DIR="/home/moai/ysl_ws/cover/lane/pretrained_e2c/lift"
 
 # Name for Weights & Biases
-WANDB_NAME="pbrs_beta${BETA}_scale${P_REWARD}_freeze_no_action_reg"
+WANDB_NAME="pbrs_viewpoint_roll_20_beta${BETA}_scale${P_REWARD}_freeze"
+
+# Parse command line arguments
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        --reward_type) REWARD_TYPE="$2"; shift ;;
+        --beta) BETA="$2"; shift ;;
+        --alpha) ALPHA="$2"; shift ;;
+        --w_m) W_M="$2"; shift ;;
+        --w_w) W_W="$2"; shift ;;
+        --p_reward) P_REWARD="$2"; shift ;;
+        --seed) SEED="$2"; shift ;;
+        --wandb_name) WANDB_NAME="$2"; shift ;;
+        --freeze_e2c) FREEZE_E2C="$2"; shift ;;
+        --base_policy_path) BASE_POLICY_PATH="$2"; shift ;;
+        --e2c_dir) E2C_DIR="$2"; shift ;;
+        *) echo "Unknown parameter passed: $1"; exit 1 ;;
+    esac
+    shift
+done
 
 echo "=================================================="
-echo "Starting Residual TD3 Training with V-PBRS (NO ACTION REGULARIZATION)"
+echo "Starting Residual TD3 Training with V-PBRS"
 echo "Reward Type     : $REWARD_TYPE"
 echo "Reward Scale    : $P_REWARD"
 echo "Beta            : $BETA"
+echo "Alpha           : $ALPHA"
+echo "Main Weight     : $W_M"
+echo "Wrist Weight    : $W_W"
 echo "Seed            : $SEED"
+echo "Freeze E2C      : $FREEZE_E2C"
 echo "WandB Name      : $WANDB_NAME"
+echo "Environment     : Viewpoint Rolled 20 deg (quat=[0.4549, 0.4989, 0.3493, 0.6497]), 5x5cm spawn area"
 echo "=================================================="
 
 # Clear scratch memory buffers
@@ -36,11 +61,16 @@ export CACHE_DIR=/home/moai/ysl_ws/cover/scratch
 export HF_HUB_OFFLINE=1
 export LEROBOT_OFFLINE=1
 
+# Ensure directory exists for script location
+mkdir -p /home/moai/ysl_ws/cover/resfit/shell/lift/viewpoint
+
 # Run training
 python resfit/rl_finetuning/scripts/train_residual_td3.py \
-    env_modifier.mode=ood_position \
-    env_modifier.ood_position.x_bounds="[-0.1, 0.1]" \
-    env_modifier.ood_position.y_bounds="[-0.1, 0.1]" \
+    env_modifier.mode=camera_ood \
+    env_modifier.camera_ood.camera_name="frontview" \
+    env_modifier.camera_ood.set_quat="[0.4549, 0.4989, 0.3493, 0.6497]" \
+    env_modifier.ood_position.x_bounds="[-0.025, 0.025]" \
+    env_modifier.ood_position.y_bounds="[-0.025, 0.025]" \
     env_modifier.disturbance=null \
     task="Lift" \
     rl_camera="['observation.images.frontview','observation.images.robot0_eye_in_hand']" \
@@ -56,5 +86,4 @@ python resfit/rl_finetuning/scripts/train_residual_td3.py \
     algo.freeze_e2c="${FREEZE_E2C}" \
     base_policy_path="${BASE_POLICY_PATH}" \
     e2c_dir="${E2C_DIR}" \
-    eval_interval_every_steps=2000 \
-    agent.actor.action_l2_reg_weight=0.0
+    eval_interval_every_steps=2000

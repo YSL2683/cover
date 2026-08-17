@@ -1,26 +1,22 @@
 #!/bin/bash
-# Script to run Residual TD3 with Potential-Based Reward Shaping (PBRS) for SquareOOD
-# Note: Uses task-isolated CACHE_DIR to support concurrent multi-task Residual RL training.
+# Script to run Residual TD3 without Dense Reward (No Dense / Sparse Reward Baseline)
+# Environment: 5x5cm initialization for cube, and modified initial robot joint posture (0.1 rad noise)
 
 # Default parameters
-REWARD_TYPE="reward_pbrs"
+REWARD_TYPE="none"
 BETA=1.0
 ALPHA=0.98
 W_M=0.3
 W_W=0.7
-P_REWARD=100.0  # Scaling factor for PBRS difference magnitude
+P_REWARD=100.0  # Even if it's set, reward_type="none" will ignore it, but keep it for compatibility
 SEED=42
 FREEZE_E2C="True"
-TASK="SquareOOD"
-
-# Base policy path (placeholder pointing to policy in resfit/my_lerobot_data)
-BASE_POLICY_PATH="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/bc_run_2026-08-10_14-18-11_lane_nut_assembly_square_id_50_diffusion/policy_step_130000/policy"
-E2C_DIR="/home/moai/ysl_ws/cover/lane/pretrained_e2c/nut_assembly_square"
-OFFLINE_DATA_DIR="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/ysl2683/lane_nut_assembly_square_id_50"
+BASE_POLICY_PATH="resfit/my_lerobot_data/bc_run_2026-07-30_16-20-35_lane_lift_id_20_aligned_diffusion/policy_step_5000/policy"
+E2C_DIR="/home/moai/ysl_ws/cover/lane/pretrained_e2c/lift"
+NOISE_RANGE=0.1  # Noise range for robot joint initialization (in radians)
 
 # Name for Weights & Biases
-WANDB_PROJECT="square_residual_rl"
-WANDB_NAME="${TASK}_${REWARD_TYPE}_beta${BETA}_scale${P_REWARD}"
+WANDB_NAME="sparse_initpose_noise0.1_beta${BETA}_scale${P_REWARD}_freeze"
 
 # Parse command line arguments
 while [[ "$#" -gt 0 ]]; do
@@ -42,8 +38,7 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 echo "=================================================="
-echo "Starting Residual TD3 Training for SquareOOD with V-PBRS"
-echo "Target Task     : SquareOOD (Random Position & Random Orientation)"
+echo "Starting Residual TD3 Training with NO DENSE REWARD (Sparse)"
 echo "Reward Type     : $REWARD_TYPE"
 echo "Reward Scale    : $P_REWARD"
 echo "Beta            : $BETA"
@@ -52,30 +47,32 @@ echo "Main Weight     : $W_M"
 echo "Wrist Weight    : $W_W"
 echo "Seed            : $SEED"
 echo "Freeze E2C      : $FREEZE_E2C"
-echo "WandB Project   : $WANDB_PROJECT"
 echo "WandB Name      : $WANDB_NAME"
-echo "Base Policy Path: $BASE_POLICY_PATH"
-echo "E2C Dir         : $E2C_DIR"
+echo "Environment     : Robot Init Pose OOD (Noise: uniform, ${NOISE_RANGE} rad on all joints), Cube 5x5cm spawn"
 echo "=================================================="
 
-# Environment variables & Isolated Cache Directory for Multi-Task Concurrency
+# Clear scratch memory buffers
+rm -rf /home/moai/ysl_ws/cover/scratch/online_buffer_cache/* /home/moai/ysl_ws/cover/scratch/offline_buffer_cache/*
+rm -rf /home/moai/ysl_ws/cover/scratch/online/* /home/moai/ysl_ws/cover/scratch/offline/*
+
+# Environment variables
 export PYTHONUNBUFFERED=1
 export PYTHONPATH=/home/moai/ysl_ws/cover:$PYTHONPATH
-export CACHE_DIR=/home/moai/ysl_ws/cover/scratch/nut_assembly_square
+export CACHE_DIR=/home/moai/ysl_ws/cover/scratch
 export HF_HUB_OFFLINE=1
 export LEROBOT_OFFLINE=1
 
-# Clear isolated scratch memory buffers for this task only
-mkdir -p ${CACHE_DIR}
-rm -rf ${CACHE_DIR}/online ${CACHE_DIR}/offline ${CACHE_DIR}/online_buffer_cache ${CACHE_DIR}/offline_buffer_cache
-
-# Run training with task="SquareOOD" and wandb.project="square_residual_rl"
+# Run training
+# We apply uniform random noise of magnitude 0.1 radians to all robot joints at the start of each episode.
 python resfit/rl_finetuning/scripts/train_residual_td3.py \
-    env_modifier.mode=none \
+    env_modifier.mode=robot_pose_ood \
+    env_modifier.robot_pose_ood.qpos_noise_range=${NOISE_RANGE} \
+    env_modifier.ood_position.x_bounds="[-0.025, 0.025]" \
+    env_modifier.ood_position.y_bounds="[-0.025, 0.025]" \
     env_modifier.disturbance=null \
-    task="${TASK}" \
+    task="Lift" \
     rl_camera="['observation.images.frontview','observation.images.robot0_eye_in_hand']" \
-    wandb.project="${WANDB_PROJECT}" \
+    wandb.project="lift_residual_rl" \
     wandb.name="${WANDB_NAME}" \
     seed="${SEED}" \
     algo.reward_type="${REWARD_TYPE}" \
@@ -87,5 +84,4 @@ python resfit/rl_finetuning/scripts/train_residual_td3.py \
     algo.freeze_e2c="${FREEZE_E2C}" \
     base_policy_path="${BASE_POLICY_PATH}" \
     e2c_dir="${E2C_DIR}" \
-    offline_data.name="${OFFLINE_DATA_DIR}" \
     eval_interval_every_steps=2000

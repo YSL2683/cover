@@ -212,6 +212,15 @@ class RobosuiteGymWrapper:
         if self.env_id == 0:
             logger.debug(f"render_gpu_device_id: {self.render_gpu_device_id}")
 
+        # Apply qpos_noise_range if set
+        if env_modifier_config is not None and getattr(env_modifier_config, "mode", None) == "robot_pose_ood":
+            robot_config = getattr(env_modifier_config, "robot_pose_ood", None)
+            if robot_config is not None and getattr(robot_config, "qpos_noise_range", None) is not None:
+                env_kwargs["initialization_noise"] = {
+                    "magnitude": robot_config.qpos_noise_range,
+                    "type": "uniform"
+                }
+
         self.env: ManipulationEnv = robosuite.make(**env_kwargs)
         
         self.env_modifier_config = env_modifier_config
@@ -300,6 +309,23 @@ class RobosuiteGymWrapper:
 
     def _apply_env_modifiers(self):
         """Applies extensible OOD configurations to the underlying robosuite environment."""
+        # Add logic for SquareID evaluation (narrow bounds, random rotation)
+        if getattr(self, "original_env_name", None) == "SquareID":
+            try:
+                sampler = self.env.placement_initializer
+                if hasattr(sampler, "samplers"):
+                    samplers = sampler.samplers
+                    sampler = samplers.get("SquareNutSampler", samplers.get("ObjectSampler"))
+                    if sampler is None and len(samplers) > 0:
+                        sampler = list(samplers.values())[0]
+                
+                if sampler is not None:
+                    sampler.x_range = [-0.115, -0.11]
+                    sampler.y_range = [0.11, 0.115]
+                    logger.debug("Applied SquareID Position Bounds: x=[-0.115, -0.11], y=[0.11, 0.115]")
+            except Exception as e:
+                logger.warning(f"Failed to apply SquareID position modifiers: {e}")
+
         if getattr(self, "env_modifier_config", None) is None:
             return
 
@@ -313,7 +339,7 @@ class RobosuiteGymWrapper:
                 sampler = self.env.placement_initializer
                 if hasattr(sampler, "samplers"):
                     samplers = sampler.samplers
-                    sampler = samplers.get("ObjectSampler")
+                    sampler = samplers.get("SquareNutSampler", samplers.get("ObjectSampler"))
                     if sampler is None and len(samplers) > 0:
                         sampler = list(samplers.values())[0]
                 
@@ -325,22 +351,81 @@ class RobosuiteGymWrapper:
             except Exception as e:
                 logger.warning(f"Failed to apply OOD position modifiers: {e}")
 
-        # Add logic for SquareID evaluation (narrow bounds, random rotation)
-        if self.original_env_name == "SquareID":
+        # Visual OOD Logic
+        if mode == "visual_ood" or getattr(self.env_modifier_config, "visual_ood", None) is not None:
             try:
-                sampler = self.env.placement_initializer
-                if hasattr(sampler, "samplers"):
-                    samplers = sampler.samplers
-                    sampler = samplers.get("ObjectSampler")
-                    if sampler is None and len(samplers) > 0:
-                        sampler = list(samplers.values())[0]
-                
-                if sampler is not None:
-                    sampler.x_range = [-0.115, -0.11]
-                    sampler.y_range = [0.11, 0.115]
-                    logger.debug("Applied SquareID Position Bounds: x=[-0.115, -0.11], y=[0.11, 0.115]")
+                visual_cfg = getattr(self.env_modifier_config, "visual_ood", None)
+                if visual_cfg is not None:
+                    table_color = getattr(visual_cfg, "table_color", "default")
+                    if table_color == "black":
+                        for geom in self.env.model.mujoco_arena.worldbody.findall(".//geom"):
+                            if geom.get("name") == "table_visual":
+                                geom.attrib.pop("material", None)
+                                geom.set("rgba", "0.05 0.05 0.05 1")
+                        logger.debug("Applied visual OOD table_color=black")
+                        
+                    cube_color = getattr(visual_cfg, "cube_color", "default")
+                    if cube_color == "green":
+                        for geom in self.env.model.root.findall(".//geom"):
+                            name = geom.get("name", "")
+                            if "cube" in name and "vis" in name:
+                                geom.attrib.pop("material", None)
+                                geom.set("rgba", "0 1 0 1")
+                        logger.debug("Applied visual OOD cube_color=green")
             except Exception as e:
-                logger.warning(f"Failed to apply SquareID position modifiers: {e}")
+                logger.warning(f"Failed to apply visual OOD modifiers: {e}")
+
+        # Camera OOD Logic
+        if mode == "camera_ood" or getattr(self.env_modifier_config, "camera_ood", None) is not None:
+            try:
+                cam_config = getattr(self.env_modifier_config, "camera_ood", None)
+                if cam_config is not None:
+                    cam_name = cam_config.camera_name
+                    # Find and update camera pos/quat in all possible locations
+                    for root_elem in [self.env.model.worldbody, getattr(self.env.model, "mujoco_arena", None)]:
+                        if root_elem is None:
+                            continue
+                        body = root_elem if hasattr(root_elem, "findall") else getattr(root_elem, "worldbody", None)
+                        if body is None:
+                            continue
+                        for cam in body.findall(".//camera"):
+                            if cam.get("name") == cam_name:
+                                if cam_config.offset_pos is not None:
+                                    offset = np.array(cam_config.offset_pos)
+                                    curr_pos = np.array([float(x) for x in cam.get("pos").split()])
+                                    new_pos = curr_pos + offset
+                                    cam.set("pos", f"{new_pos[0]} {new_pos[1]} {new_pos[2]}")
+                                    logger.debug(f"Applied camera offset {offset} to {cam_name}")
+                                if getattr(cam_config, "set_quat", None) is not None:
+                                    q = cam_config.set_quat
+                                    cam.set("quat", f"{q[0]} {q[1]} {q[2]} {q[3]}")
+                                    # If quat is set, we might need to remove "target" or "euler" if they exist, but robosuite uses quat mostly
+                                    if "xyaxes" in cam.attrib:
+                                        del cam.attrib["xyaxes"]
+                                    logger.debug(f"Applied camera quat {q} to {cam_name}")
+            except Exception as e:
+                logger.warning(f"Failed to apply camera OOD modifiers: {e}")
+
+        # Robot Pose OOD Logic
+        if mode == "robot_pose_ood" or getattr(self.env_modifier_config, "robot_pose_ood", None) is not None:
+            try:
+                robot_config = getattr(self.env_modifier_config, "robot_pose_ood", None)
+                if robot_config is not None:
+                    if hasattr(self.env, "robots") and len(self.env.robots) > 0:
+                        robot = self.env.robots[0]
+                        if getattr(robot_config, "qpos_offset", None) is not None:
+                            robot.init_qpos = np.array(robot.init_qpos) + np.array(robot_config.qpos_offset)
+                            logger.debug(f"Applied robot qpos offset: {robot_config.qpos_offset}")
+                        if getattr(robot_config, "base_pos_offset", None) is not None:
+                            # Modify the base pos in the XML worldbody before sim is created
+                            for geom in self.env.model.worldbody.findall(".//body"):
+                                if geom.get("name") == robot.robot_model.root_body:
+                                    curr_pos = np.array([float(x) for x in geom.get("pos").split()])
+                                    new_pos = curr_pos + np.array(robot_config.base_pos_offset)
+                                    geom.set("pos", f"{new_pos[0]} {new_pos[1]} {new_pos[2]}")
+                                    logger.debug(f"Applied robot base_pos offset: {robot_config.base_pos_offset}")
+            except Exception as e:
+                logger.warning(f"Failed to apply robot pose OOD modifiers: {e}")
 
     def _setup_spaces(self):
         """Setup observation and action spaces for Gymnasium compatibility."""
@@ -416,7 +501,7 @@ class RobosuiteGymWrapper:
         # Gymnasium interface: reset can accept seed and options
         # For robosuite environments, we'll ignore options for now
         obs = self.env.reset()
-        
+
         # (Legacy SquareID fixed-orientation code removed to support random rotation)
         self._setup_disturbance_hook()
         processed_obs = self._process_obs(obs)

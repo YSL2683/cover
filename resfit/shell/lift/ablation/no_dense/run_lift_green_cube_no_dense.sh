@@ -1,28 +1,35 @@
 #!/bin/bash
-# Script to run Residual TD3 with Potential-Based Reward Shaping (PBRS) WITHOUT Action Regularization (Ablation)
+# Script to run Residual TD3 WITHOUT dense reward (ablation study)
+# Environment: 5x5cm initialization with green cube
 
-# Default parameters
-REWARD_TYPE="reward_pbrs"
-BETA=1.0
-ALPHA=0.98
-W_M=0.3
-W_W=0.7
-P_REWARD=100.0
+# Default parameters (can be overridden by command line arguments)
+REWARD_TYPE="none"
 SEED=42
-FREEZE_E2C="True"
 BASE_POLICY_PATH="resfit/my_lerobot_data/bc_run_2026-07-30_16-20-35_lane_lift_id_20_aligned_diffusion/policy_step_5000/policy"
-E2C_DIR="/home/moai/ysl_ws/cover/lane/pretrained_e2c/lift"
+E2C_DIR=""  # We don't need E2C for sparse reward
 
 # Name for Weights & Biases
-WANDB_NAME="pbrs_beta${BETA}_scale${P_REWARD}_freeze_no_action_reg"
+WANDB_NAME="green_cube_5x5_sparse_only"
+
+# Parse command line arguments if provided
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        --reward_type) REWARD_TYPE="$2"; shift ;;
+        --seed) SEED="$2"; shift ;;
+        --wandb_name) WANDB_NAME="$2"; shift ;;
+        --base_policy_path) BASE_POLICY_PATH="$2"; shift ;;
+        *) echo "Unknown parameter passed: $1"; exit 1 ;;
+    esac
+    shift
+done
 
 echo "=================================================="
-echo "Starting Residual TD3 Training with V-PBRS (NO ACTION REGULARIZATION)"
+echo "Starting Residual TD3 Training (NO DENSE REWARD)"
 echo "Reward Type     : $REWARD_TYPE"
-echo "Reward Scale    : $P_REWARD"
-echo "Beta            : $BETA"
 echo "Seed            : $SEED"
+echo "Base Policy Path: $BASE_POLICY_PATH"
 echo "WandB Name      : $WANDB_NAME"
+echo "Environment     : Green Cube, 5x5cm spawn area"
 echo "=================================================="
 
 # Clear scratch memory buffers
@@ -39,8 +46,9 @@ export LEROBOT_OFFLINE=1
 # Run training
 python resfit/rl_finetuning/scripts/train_residual_td3.py \
     env_modifier.mode=ood_position \
-    env_modifier.ood_position.x_bounds="[-0.1, 0.1]" \
-    env_modifier.ood_position.y_bounds="[-0.1, 0.1]" \
+    env_modifier.ood_position.x_bounds="[-0.025, 0.025]" \
+    env_modifier.ood_position.y_bounds="[-0.025, 0.025]" \
+    env_modifier.visual_ood.cube_color="green" \
     env_modifier.disturbance=null \
     task="Lift" \
     rl_camera="['observation.images.frontview','observation.images.robot0_eye_in_hand']" \
@@ -48,13 +56,6 @@ python resfit/rl_finetuning/scripts/train_residual_td3.py \
     wandb.name="${WANDB_NAME}" \
     seed="${SEED}" \
     algo.reward_type="${REWARD_TYPE}" \
-    algo.reward_beta="${BETA}" \
-    algo.reward_alpha="${ALPHA}" \
-    algo.reward_w_m="${W_M}" \
-    algo.reward_w_w="${W_W}" \
-    algo.p_reward="${P_REWARD}" \
-    algo.freeze_e2c="${FREEZE_E2C}" \
     base_policy_path="${BASE_POLICY_PATH}" \
     e2c_dir="${E2C_DIR}" \
-    eval_interval_every_steps=2000 \
-    agent.actor.action_l2_reg_weight=0.0
+    eval_interval_every_steps=2000
