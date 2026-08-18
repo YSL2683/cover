@@ -1,14 +1,15 @@
 #!/bin/bash
-# Script to run Residual TD3 with Potential-Based Reward Shaping (PBRS) for SquareID
+# Ablation Script: Residual TD3 WITHOUT Dense Reward (No PBRS)
+# This serves as a baseline (Sparse Reward only) for SquareID.
 # Note: Uses task-isolated CACHE_DIR to support concurrent multi-task Residual RL training.
 
 # Default parameters
-REWARD_TYPE="reward_pbrs_no_step_penalty"
+REWARD_TYPE="none"   # "none" bypasses the shaper completely (no dense reward)
 BETA=1.0
 ALPHA=0.98
 W_M=0.3
 W_W=0.7
-P_REWARD=100.0  # Scaling factor for PBRS difference magnitude
+P_REWARD=0.0  # Set to 0.0 just to be explicit that there is no dense reward
 SEED=42
 FREEZE_E2C="True"
 TASK="SquareID"
@@ -20,7 +21,7 @@ OFFLINE_DATA_DIR="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/ysl2683/lane_nu
 
 # Name for Weights & Biases
 WANDB_PROJECT="square_residual_rl"
-WANDB_NAME="${TASK}_${REWARD_TYPE}_beta${BETA}_scale${P_REWARD}"
+WANDB_NAME="${TASK}_ablation_no_dense_seed${SEED}"
 
 # Parse command line arguments
 while [[ "$#" -gt 0 ]]; do
@@ -42,14 +43,10 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 echo "=================================================="
-echo "Starting Residual TD3 Training for SquareID with V-PBRS (No Step Penalty)"
+echo "Starting Ablation Training for SquareID WITHOUT Dense Reward"
 echo "Target Task     : SquareID (In-Distribution Position & Orientation)"
-echo "Reward Type     : $REWARD_TYPE"
+echo "Reward Type     : $REWARD_TYPE (No PBRS)"
 echo "Reward Scale    : $P_REWARD"
-echo "Beta            : $BETA"
-echo "Alpha           : $ALPHA"
-echo "Main Weight     : $W_M"
-echo "Wrist Weight    : $W_W"
 echo "Seed            : $SEED"
 echo "Freeze E2C      : $FREEZE_E2C"
 echo "WandB Project   : $WANDB_PROJECT"
@@ -61,7 +58,7 @@ echo "=================================================="
 # Environment variables & Isolated Cache Directory for Multi-Task Concurrency
 export PYTHONUNBUFFERED=1
 export PYTHONPATH=/home/moai/ysl_ws/cover:$PYTHONPATH
-export CACHE_DIR=/home/moai/ysl_ws/cover/scratch/nut_assembly_square
+export CACHE_DIR=/home/moai/ysl_ws/cover/scratch/nut_assembly_square_ablation_no_dense
 export HF_HUB_OFFLINE=1
 export LEROBOT_OFFLINE=1
 

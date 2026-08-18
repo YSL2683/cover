@@ -74,7 +74,7 @@ python resfit/rl_finetuning/scripts/train_residual_td3.py \
     env_modifier.mode=none \
     env_modifier.disturbance=null \
     task="${TASK}" \
-    rl_camera="['observation.images.frontview','observation.images.robot0_eye_in_hand']" \
+    rl_camera="['observation.images.agentview','observation.images.robot0_eye_in_hand']" \
     wandb.project="${WANDB_PROJECT}" \
     wandb.name="${WANDB_NAME}" \
     seed="${SEED}" \

@@ -3,7 +3,7 @@
 # Note: Uses task-isolated CACHE_DIR to support concurrent multi-task Residual RL training.
 
 # Default parameters
-REWARD_TYPE="reward_pbrs_no_step_penalty"
+REWARD_TYPE="reward_pbrs_no_step_penalty_success1000"
 BETA=1.0
 ALPHA=0.98
 W_M=0.3
@@ -42,7 +42,7 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 echo "=================================================="
-echo "Starting Residual TD3 Training for SquareID with V-PBRS (No Step Penalty)"
+echo "Starting Residual TD3 Training for SquareID with V-PBRS (No Step Penalty, Success 1000)"
 echo "Target Task     : SquareID (In-Distribution Position & Orientation)"
 echo "Reward Type     : $REWARD_TYPE"
 echo "Reward Scale    : $P_REWARD"
@@ -61,6 +61,7 @@ echo "=================================================="
 # Environment variables & Isolated Cache Directory for Multi-Task Concurrency
 export PYTHONUNBUFFERED=1
 export PYTHONPATH=/home/moai/ysl_ws/cover:$PYTHONPATH
+# Note: Uses task-isolated CACHE_DIR to support concurrent multi-task Residual RL training.
 export CACHE_DIR=/home/moai/ysl_ws/cover/scratch/nut_assembly_square
 export HF_HUB_OFFLINE=1
 export LEROBOT_OFFLINE=1

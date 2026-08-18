@@ -3,12 +3,12 @@
 # Note: Uses task-isolated CACHE_DIR to support concurrent multi-task Residual RL training.
 
 # Default parameters
-REWARD_TYPE="reward_pbrs_no_step_penalty"
+REWARD_TYPE="reward_pbrs_no_step_penalty_success1"
 BETA=1.0
 ALPHA=0.98
 W_M=0.3
 W_W=0.7
-P_REWARD=100.0  # Scaling factor for PBRS difference magnitude
+P_REWARD=1.0  # Scaling factor for PBRS difference magnitude
 SEED=42
 FREEZE_E2C="True"
 TASK="SquareID"
@@ -42,7 +42,7 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 echo "=================================================="
-echo "Starting Residual TD3 Training for SquareID with V-PBRS (No Step Penalty)"
+echo "Starting Residual TD3 Training for SquareID with V-PBRS (No Step Penalty, Success 1, Scale 1)"
 echo "Target Task     : SquareID (In-Distribution Position & Orientation)"
 echo "Reward Type     : $REWARD_TYPE"
 echo "Reward Scale    : $P_REWARD"
