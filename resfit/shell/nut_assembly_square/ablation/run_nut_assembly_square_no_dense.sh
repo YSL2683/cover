@@ -15,7 +15,7 @@ FREEZE_E2C="True"
 TASK="SquareID"
 
 # Base policy path (placeholder pointing to policy in resfit/my_lerobot_data)
-BASE_POLICY_PATH="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/bc_run_2026-08-16_15-42-54_lane_nut_assembly_square_id_50_diffusion/best_step_55000/policy"
+BASE_POLICY_PATH="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/bc_run_2026-08-18_13-56-07_lane_nut_assembly_square_id_50_diffusion/best_step_50000/policy"
 E2C_DIR="/home/moai/ysl_ws/cover/lane/pretrained_e2c/nut_assembly_square"
 OFFLINE_DATA_DIR="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/ysl2683/lane_nut_assembly_square_id_50"
 

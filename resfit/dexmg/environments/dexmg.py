@@ -636,7 +636,7 @@ class RobosuiteGymWrapper:
         # Canonical camera key sets
         # ---------------------------------------------
         panda_image_keys_single = [
-            "frontview_image",
+            "agentview_image",
             "robot0_eye_in_hand_image",
         ]
 

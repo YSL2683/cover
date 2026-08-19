@@ -29,8 +29,8 @@ def eval_policy(policy_path, n_episodes=20, max_steps=150, video_path="eval_vide
         use_object_obs=True,
         use_camera_obs=True,
         camera_names=["frontview", "robot0_eye_in_hand", "agentview"],
-        camera_heights=128,
-        camera_widths=128,
+        camera_heights=[128, 128, 512],
+        camera_widths=[128, 128, 512],
         reward_shaping=True,
     )
     
@@ -60,9 +60,10 @@ def eval_policy(policy_path, n_episodes=20, max_steps=150, video_path="eval_vide
         record_video = True
         success_counter = 0
         
+        ep_frames = []
         for step in range(max_steps):
             if record_video:
-                all_frames.append(obs["agentview_image"][::-1])
+                ep_frames.append(obs["agentview_image"][::-1])
                 
             front_img = obs["frontview_image"][::-1].copy()
             wrist_img = obs["robot0_eye_in_hand_image"][::-1].copy()
@@ -91,13 +92,6 @@ def eval_policy(policy_path, n_episodes=20, max_steps=150, video_path="eval_vide
                 
             next_obs, r, d, info = env.step(action)
             
-            if r > 0: # In reward_shaping=True for Lift, touching gives some reward, lifting gives >1? Wait.
-                # Actually, success in robosuite is when the object is lifted
-                pass
-            
-            # env.render()
-                
-            # Better success check: require 5 consecutive frames of success
             if env._check_success():
                 success_counter += 1
                 if success_counter >= 5:
@@ -116,6 +110,8 @@ def eval_policy(policy_path, n_episodes=20, max_steps=150, video_path="eval_vide
             print(f"Episode {ep+1}: SUCCESS")
         else:
             print(f"Episode {ep+1}: FAILURE")
+            if record_video:
+                all_frames.extend(ep_frames)
             
     success_rate = successes / n_episodes
     print(f"Total Success Rate: {success_rate * 100:.1f}% ({successes}/{n_episodes})")

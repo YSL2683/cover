@@ -127,7 +127,7 @@ class ResidualTD3DexmgConfig(RLPDDexmgConfig):
     base_policy: BasePolicyConfig = field(default_factory=BasePolicyConfig)
 
     # ------------------------------------------------------------------
-    # Pretrained E2C encoder directory (contains e2c_front.pt, e2c_wrist.pt)
+    # Pretrained E2C encoder directory (contains e2c_main.pt, e2c_wrist.pt)
     # ------------------------------------------------------------------
     e2c_dir: str = "/home/moai/ysl_ws/cover/lane/pretrained_e2c/lift"
 

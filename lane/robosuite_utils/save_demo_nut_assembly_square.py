@@ -19,14 +19,14 @@ env = suite.make(
     env_name="NutAssemblySquare",
     robots="Panda",
     controller_configs=config,
-    camera_names=["frontview", "robot0_eye_in_hand"],
+    camera_names=["agentview", "robot0_eye_in_hand"],
     camera_heights=128,
     camera_widths=128,
     control_freq=10,
     horizon=300,
     has_renderer=True,
     has_offscreen_renderer=True,
-    render_camera="frontview",
+    render_camera="agentview",
 )
 
 # Set SquareNut initial placement range (x uses default [-0.115, -0.11], y uses equivalent width [0.11, 0.115])
@@ -55,7 +55,7 @@ while successful_demos < NUM_DEMOS:
     demo_frames = []
     
     img_obs = np.concatenate(
-        [obs["frontview_image"][::-1], obs["robot0_eye_in_hand_image"][::-1]], axis=2
+        [obs["agentview_image"][::-1], obs["robot0_eye_in_hand_image"][::-1]], axis=2
     ).transpose((2, 0, 1))
     
     stage = 0
@@ -80,7 +80,7 @@ while successful_demos < NUM_DEMOS:
         target_roll_final = np.pi if init_roll > 0 else -np.pi
         target_roll = init_roll + alpha * (target_roll_final - init_roll)
         target_pitch = init_pitch + alpha * (0.0 - init_pitch)
-        demo_frames.append(obs["frontview_image"][::-1])
+        demo_frames.append(obs["agentview_image"][::-1])
         nut_body_id = env.sim.model.body_name2id("SquareNut_main")
         peg_body_id = env.sim.model.body_name2id("peg1")
         
@@ -261,11 +261,11 @@ while successful_demos < NUM_DEMOS:
 
         next_obs, r, d, info = env.step(action)
         env.render()
-        demo_frames.append(obs["frontview_image"][::-1])
+        demo_frames.append(obs["agentview_image"][::-1])
         
         next_img_obs = np.concatenate(
             [
-                next_obs["frontview_image"][::-1],
+                next_obs["agentview_image"][::-1],
                 next_obs["robot0_eye_in_hand_image"][::-1],
             ],
             axis=2,
@@ -329,6 +329,7 @@ payload = [
     np.array(not_done_list),
     np.array(state_list),
 ]
+os.makedirs(target_folder, exist_ok=True)
 torch.save(payload, target_folder + "/0_" + str(len(obs_list)) + ".pt")
 np.save(target_folder + "/demo_starts.npy", np.array(demo_starts))
 np.save(target_folder + "/demo_ends.npy", np.array(demo_ends))

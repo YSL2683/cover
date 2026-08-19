@@ -20,9 +20,9 @@ def run_visualizations(env, agent, lane_shaper, cfg):
     print("Initializing E2C representations from pretrained weights...")
     if not lane_shaper.initialized:
         e2c_dir = "/home/moai/ysl_ws/cover/lane/pretrained_e2c/lift"
-        lane_shaper.e2c_front.load_state_dict(torch.load(f"{e2c_dir}/e2c_front.pt", map_location=device))
+        lane_shaper.e2c_main.load_state_dict(torch.load(f"{e2c_dir}/e2c_main.pt", map_location=device))
         lane_shaper.e2c_wrist.load_state_dict(torch.load(f"{e2c_dir}/e2c_wrist.pt", map_location=device))
-        lane_shaper.e2c_front.eval()
+        lane_shaper.e2c_main.eval()
         lane_shaper.e2c_wrist.eval()
         lane_shaper.initialize_demos()
     
@@ -47,11 +47,11 @@ def run_visualizations(env, agent, lane_shaper, cfg):
                 
             next_obs, env_reward, done, truncated, info = env.step(action)
             
-            img_front = obs["observation.images.frontview"].float()
+            img_main = obs[lane_shaper.main_cam_key].float()
             img_wrist = obs["observation.images.robot0_eye_in_hand"].float()
             
             with torch.no_grad():
-                obs_img = torch.cat([img_front, img_wrist], dim=1).to(device)
+                obs_img = torch.cat([img_main, img_wrist], dim=1).to(device)
                 dino_emb = lane_shaper.dino_embed(obs_img)
                 
                 d_f = dino_emb[:, :384].cpu().numpy()[0]
@@ -74,14 +74,14 @@ def run_visualizations(env, agent, lane_shaper, cfg):
                     wandb.log({f"eval_viz/{k}": v for k, v in lane_stats.items()})
                 rewards.append(r_val)
             
-            f_im_tensor = obs["observation.images.frontview"][0].permute(1, 2, 0).cpu().numpy()
+            m_im_tensor = obs[lane_shaper.main_cam_key][0].permute(1, 2, 0).cpu().numpy()
             w_im_tensor = obs["observation.images.robot0_eye_in_hand"][0].permute(1, 2, 0).cpu().numpy()
             
-            f_im = (f_im_tensor * 255.0).astype(np.uint8)
+            m_im = (m_im_tensor * 255.0).astype(np.uint8)
             w_im = (w_im_tensor * 255.0).astype(np.uint8)
             
             buffered_data.append({
-                'f_im': f_im,
+                'main_im': m_im,
                 'w_im': w_im,
                 'd_f': d_f,
                 'd_w': d_w,

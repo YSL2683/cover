@@ -57,7 +57,7 @@ def convert_lane_to_lerobot(
     ]
 
     features = {
-        "observation.images.frontview": {"dtype": "video", "shape": (3, 128, 128), "names": ["c", "h", "w"]},
+        "observation.images.agentview": {"dtype": "video", "shape": (3, 128, 128), "names": ["c", "h", "w"]},
         "observation.images.robot0_eye_in_hand": {"dtype": "video", "shape": (3, 128, 128), "names": ["c", "h", "w"]},
         "observation.state": {"dtype": "float32", "shape": (state_dim,), "names": state_names},
         "action": {"dtype": "float32", "shape": (7,), "names": action_names},
@@ -92,7 +92,7 @@ def convert_lane_to_lerobot(
             wrist_img_np = wrist_img if wrist_img.dtype == np.uint8 else np.clip(wrist_img * 255.0, 0, 255).astype(np.uint8)
             
             frame_dict = {
-                "observation.images.frontview": torch.from_numpy(front_img_np),
+                "observation.images.agentview": torch.from_numpy(front_img_np),
                 "observation.images.robot0_eye_in_hand": torch.from_numpy(wrist_img_np),
                 "observation.state": state.numpy() if hasattr(state, 'numpy') else np.array(state, dtype=np.float32),
                 "action": act.numpy() if hasattr(act, 'numpy') else np.array(act, dtype=np.float32),

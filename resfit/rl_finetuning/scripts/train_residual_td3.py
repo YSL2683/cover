@@ -942,7 +942,7 @@ def main(cfg: ResidualTD3DexmgConfig):
                 for p in lane_shaper.e2c_unified.parameters(): p.requires_grad = True
             else:
                 print(f"Loading pretrained E2C weights from {e2c_dir}...")
-                lane_shaper.e2c_main.load_state_dict(torch.load(f"{e2c_dir}/e2c_front.pt", map_location=device))
+                lane_shaper.e2c_main.load_state_dict(torch.load(f"{e2c_dir}/e2c_main.pt", map_location=device))
                 lane_shaper.e2c_wrist.load_state_dict(torch.load(f"{e2c_dir}/e2c_wrist.pt", map_location=device))
                 lane_shaper.e2c_main.train()
                 lane_shaper.e2c_wrist.train()
@@ -996,7 +996,7 @@ def main(cfg: ResidualTD3DexmgConfig):
     training_timer = TrainingTimer()
 
     def _run_critic_warmup(
-        agent, online_rb, offline_rb, cfg, device, training_timer, online_batch_size, offline_batch_size
+        agent, online_rb, offline_rb, cfg, device, training_timer, online_batch_size, offline_batch_size, lane_shaper=None
     ):
         """Run critic-only updates for warmup phase."""
         for i in range(cfg.algo.critic_warmup_steps):
@@ -1015,6 +1015,9 @@ def main(cfg: ResidualTD3DexmgConfig):
                     # Online-only training
                     batch = online_batch
 
+            if lane_shaper is not None:
+                _ = lane_shaper.shape_reward(batch, step=0)
+                
             # Only update critic during warmup (update_actor=False)
             with training_timer.time("gradient_update"):
                 metrics = agent.update(batch, stddev=0.0, update_actor=False, bc_batch=None, ref_agent=agent)
@@ -1064,6 +1067,7 @@ def main(cfg: ResidualTD3DexmgConfig):
             training_timer=training_timer,
             online_batch_size=online_batch_size,
             offline_batch_size=offline_batch_size,
+            lane_shaper=lane_shaper if "lane_shaper" in locals() else None,
         )
         print("Critic warmup completed.")
 

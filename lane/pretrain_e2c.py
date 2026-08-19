@@ -62,14 +62,14 @@ def get_dino_features(images, dino, device, is_training=True):
     
     normalize = T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     
-    front = normalize(cropped[:, :3])
+    main = normalize(cropped[:, :3])
     wrist = normalize(cropped[:, 3:6])
     
     with torch.no_grad():
-        feat_f = dino(front)
+        feat_m = dino(main)
         feat_w = dino(wrist)
         
-    return feat_f, feat_w
+    return feat_m, feat_w
 
 
 def train_e2c(obs, next_obs, actions, dino, device="cuda", n_iter=5000, mse_tol=1e-2, mode="decoupled"):
@@ -79,10 +79,10 @@ def train_e2c(obs, next_obs, actions, dino, device="cuda", n_iter=5000, mse_tol=
         e2c_unified = MLPE2C(obs_shape=(768,), action_dim=action_dim, z_dimension=16).to(device)
         opt_unified = torch.optim.Adam(e2c_unified.parameters(), lr=1e-4)
     else:
-        e2c_front = MLPE2C(obs_shape=(384,), action_dim=action_dim, z_dimension=16).to(device)
+        e2c_main = MLPE2C(obs_shape=(384,), action_dim=action_dim, z_dimension=16).to(device)
         e2c_wrist = MLPE2C(obs_shape=(384,), action_dim=action_dim, z_dimension=16).to(device)
         
-        opt_f = torch.optim.Adam(e2c_front.parameters(), lr=1e-4)
+        opt_m = torch.optim.Adam(e2c_main.parameters(), lr=1e-4)
         opt_w = torch.optim.Adam(e2c_wrist.parameters(), lr=1e-4)
     
     dataset = TensorDataset(obs, next_obs, actions)
@@ -97,26 +97,26 @@ def train_e2c(obs, next_obs, actions, dino, device="cuda", n_iter=5000, mse_tol=
         if early_stop:
             break
             
-        total_loss_f = 0
+        total_loss_m = 0
         total_loss_w = 0
         total_loss_u = 0
         
         if mode == "unified":
             e2c_unified.train()
         else:
-            e2c_front.train()
+            e2c_main.train()
             e2c_wrist.train()
         
         for b_obs, b_nobs, b_act in loader:
             b_act = b_act.to(device).float()
             
             # Extract features on the fly with random crop
-            b_obs_f, b_obs_w = get_dino_features(b_obs, dino, device, is_training=True)
-            b_nobs_f, b_nobs_w = get_dino_features(b_nobs, dino, device, is_training=True)
+            b_obs_m, b_obs_w = get_dino_features(b_obs, dino, device, is_training=True)
+            b_nobs_m, b_nobs_w = get_dino_features(b_nobs, dino, device, is_training=True)
             
             if mode == "unified":
-                b_obs_u = torch.cat([b_obs_f, b_obs_w], dim=1)
-                b_nobs_u = torch.cat([b_nobs_f, b_nobs_w], dim=1)
+                b_obs_u = torch.cat([b_obs_m, b_obs_w], dim=1)
+                b_nobs_u = torch.cat([b_nobs_m, b_nobs_w], dim=1)
                 
                 dkl_u, mse_u, ref_kl_u, _ = e2c_unified(b_obs_u, b_act, b_nobs_u, None, None)
                 loss_u = dkl_u + mse_u * 768 + ref_kl_u
@@ -134,27 +134,27 @@ def train_e2c(obs, next_obs, actions, dino, device="cuda", n_iter=5000, mse_tol=
                     early_stop = True
                     break
             else:
-                dkl_f, mse_f, ref_kl_f, _ = e2c_front(b_obs_f, b_act, b_nobs_f, None, None)
-                loss_f = dkl_f + mse_f * 384 + ref_kl_f
+                dkl_m, mse_m, ref_kl_m, _ = e2c_main(b_obs_m, b_act, b_nobs_m, None, None)
+                loss_m = dkl_m + mse_m * 384 + ref_kl_m
                 
                 dkl_w, mse_w, ref_kl_w, _ = e2c_wrist(b_obs_w, b_act, b_nobs_w, None, None)
                 loss_w = dkl_w + mse_w * 384 + ref_kl_w
                 
-                opt_f.zero_grad()
-                loss_f.backward()
-                opt_f.step()
+                opt_m.zero_grad()
+                loss_m.backward()
+                opt_m.step()
                 
                 opt_w.zero_grad()
                 loss_w.backward()
                 opt_w.step()
                 
-                total_loss_f += loss_f.item()
+                total_loss_m += loss_m.item()
                 total_loss_w += loss_w.item()
                 
                 global_step += 1
                 
-                if mse_tol is not None and mse_f.item() < mse_tol and mse_w.item() < mse_tol:
-                    print(f"Early stopping at epoch {epoch+1}, global step {global_step} (MSE F={mse_f.item():.4f}, MSE W={mse_w.item():.4f})")
+                if mse_tol is not None and mse_m.item() < mse_tol and mse_w.item() < mse_tol:
+                    print(f"Early stopping at epoch {epoch+1}, global step {global_step} (MSE M={mse_m.item():.4f}, MSE W={mse_w.item():.4f})")
                     early_stop = True
                     break
             
@@ -162,12 +162,12 @@ def train_e2c(obs, next_obs, actions, dino, device="cuda", n_iter=5000, mse_tol=
             if mode == "unified":
                 print(f"Epoch {epoch+1}: Loss U = {total_loss_u/len(loader):.4f}")
             else:
-                print(f"Epoch {epoch+1}: Loss F = {total_loss_f/len(loader):.4f}, Loss W = {total_loss_w/len(loader):.4f}")
+                print(f"Epoch {epoch+1}: Loss M = {total_loss_m/len(loader):.4f}, Loss W = {total_loss_w/len(loader):.4f}")
             
     if mode == "unified":
         return e2c_unified
     else:
-        return e2c_front, e2c_wrist
+        return e2c_main, e2c_wrist
 
 def precompute_demo_latents(e2c_models, obs, dino, demo_starts, demo_ends, device="cuda", mode="decoupled"):
     if mode == "unified":
@@ -176,7 +176,7 @@ def precompute_demo_latents(e2c_models, obs, dino, demo_starts, demo_ends, devic
         e2c_models[0].eval()
         e2c_models[1].eval()
     
-    z_demo_front = []
+    z_demo_main = []
     z_demo_wrist = []
     z_demo_unified = []
     demo_lengths = []
@@ -187,35 +187,35 @@ def precompute_demo_latents(e2c_models, obs, dino, demo_starts, demo_ends, devic
         for start, end in zip(demo_starts, demo_ends):
             traj_obs = obs[start:end]
             
-            zf_list = []
+            zm_list = []
             zw_list = []
             zu_list = []
             
             for i in range(0, len(traj_obs), batch_size):
                 b_obs = traj_obs[i:i+batch_size]
-                feat_f, feat_w = get_dino_features(b_obs, dino, device, is_training=False) # center crop
+                feat_m, feat_w = get_dino_features(b_obs, dino, device, is_training=False) # center crop
                 
                 if mode == "unified":
-                    feat_u = torch.cat([feat_f, feat_w], dim=1)
+                    feat_u = torch.cat([feat_m, feat_w], dim=1)
                     zu, _ = e2c_models.enc(feat_u)
                     zu_list.append(zu.cpu())
                 else:
-                    zf, _ = e2c_models[0].enc(feat_f)
+                    zm, _ = e2c_models[0].enc(feat_m)
                     zw, _ = e2c_models[1].enc(feat_w)
-                    zf_list.append(zf.cpu())
+                    zm_list.append(zm.cpu())
                     zw_list.append(zw.cpu())
                 
             if mode == "unified":
                 z_demo_unified.append(torch.cat(zu_list, dim=0).unsqueeze(0))
             else:
-                z_demo_front.append(torch.cat(zf_list, dim=0).unsqueeze(0))
+                z_demo_main.append(torch.cat(zm_list, dim=0).unsqueeze(0))
                 z_demo_wrist.append(torch.cat(zw_list, dim=0).unsqueeze(0))
             demo_lengths.append(end - start)
             
     if mode == "unified":
         return z_demo_unified, demo_lengths
     else:
-        return z_demo_front, z_demo_wrist, demo_lengths
+        return z_demo_main, z_demo_wrist, demo_lengths
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Pretrain E2C latent space on demos")
@@ -241,7 +241,7 @@ if __name__ == "__main__":
     if args.mode == "unified":
         z_du, t_lens = precompute_demo_latents(e2c_models, obs, dino, starts, ends, device, mode=args.mode)
     else:
-        z_df, z_dw, t_lens = precompute_demo_latents(e2c_models, obs, dino, starts, ends, device, mode=args.mode)
+        z_dm, z_dw, t_lens = precompute_demo_latents(e2c_models, obs, dino, starts, ends, device, mode=args.mode)
     
     print("Saving artifacts...")
     save_dir = args.save_dir
@@ -253,10 +253,10 @@ if __name__ == "__main__":
             "demo_lengths": t_lens
         }, os.path.join(save_dir, "demo_latents.pt"))
     else:
-        torch.save(e2c_models[0].state_dict(), os.path.join(save_dir, "e2c_front.pt"))
+        torch.save(e2c_models[0].state_dict(), os.path.join(save_dir, "e2c_main.pt"))
         torch.save(e2c_models[1].state_dict(), os.path.join(save_dir, "e2c_wrist.pt"))
         torch.save({
-            "z_demo_front": z_df,
+            "z_demo_main": z_dm,
             "z_demo_wrist": z_dw,
             "demo_lengths": t_lens
         }, os.path.join(save_dir, "demo_latents.pt"))

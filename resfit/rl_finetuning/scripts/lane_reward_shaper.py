@@ -28,6 +28,13 @@ class LaNERewardShaper:
         self.online_rb = online_rb
         self.e2c_mode = e2c_mode
         
+        # Determine main camera key dynamically from offline buffer
+        try:
+            obs_keys = offline_rb[0]["obs"].keys()
+            self.main_cam_key = "observation.images.agentview" if "observation.images.agentview" in obs_keys else "observation.images.frontview"
+        except:
+            self.main_cam_key = "observation.images.frontview"
+        
         print("Loading DINOv2 model...")
         self.dino = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14_reg").to(device)
         self.dino.eval()
@@ -84,11 +91,11 @@ class LaNERewardShaper:
         batch_size = 128
         for i in range(0, len(self.offline_rb), batch_size):
             batch = self.offline_rb[i:i+batch_size].to(self.device)
-            img_main = batch["obs", "observation.images.frontview"]
+            img_main = batch["obs", self.main_cam_key]
             img_wrist = batch["obs", "observation.images.robot0_eye_in_hand"]
             obs_img = torch.cat([img_main, img_wrist], dim=1).float() / 255.0
             
-            next_img_main = batch["next", "obs", "observation.images.frontview"]
+            next_img_main = batch["next", "obs", self.main_cam_key]
             next_img_wrist = batch["next", "obs", "observation.images.robot0_eye_in_hand"]
             next_obs_img = torch.cat([next_img_main, next_img_wrist], dim=1).float() / 255.0
             
@@ -121,11 +128,11 @@ class LaNERewardShaper:
         batch_size = 128
         for i in range(0, len(online_rb), batch_size):
             batch = online_rb[i:i+batch_size].to(self.device)
-            img_main = batch["obs", "observation.images.frontview"]
+            img_main = batch["obs", self.main_cam_key]
             img_wrist = batch["obs", "observation.images.robot0_eye_in_hand"]
             obs_img = torch.cat([img_main, img_wrist], dim=1).float() / 255.0
             
-            next_img_main = batch["next", "obs", "observation.images.frontview"]
+            next_img_main = batch["next", "obs", self.main_cam_key]
             next_img_wrist = batch["next", "obs", "observation.images.robot0_eye_in_hand"]
             next_obs_img = torch.cat([next_img_main, next_img_wrist], dim=1).float() / 255.0
             
@@ -152,7 +159,7 @@ class LaNERewardShaper:
     def add_dino_to_tensordict(self, td):
         # td is the tensordict collected from env
         # add "dino" and "next", "dino"
-        img_main = td["obs", "observation.images.frontview"]
+        img_main = td["obs", self.main_cam_key]
         img_wrist = td["obs", "observation.images.robot0_eye_in_hand"]
         is_unbatched = img_main.ndim == 3
         if is_unbatched:
@@ -161,7 +168,7 @@ class LaNERewardShaper:
             
         obs_img = torch.cat([img_main, img_wrist], dim=1).float() / 255.0
         
-        next_img_main = td["next", "obs", "observation.images.frontview"]
+        next_img_main = td["next", "obs", self.main_cam_key]
         next_img_wrist = td["next", "obs", "observation.images.robot0_eye_in_hand"]
         if is_unbatched:
             next_img_main = next_img_main.unsqueeze(0)
@@ -969,6 +976,148 @@ class LaNERewardShaper:
             batch["next", "reward"] = torch.where(
                 batch["next", "reward"] < 0.0,
                 batch["next", "reward"] + 1.0,
+                batch["next", "reward"]
+            )
+            # -------------------------------------------------------------
+            # Potential-Based Reward Shaping (PBRS)
+            # F(s, a, s') = gamma * Phi(s') - Phi(s)
+            # -------------------------------------------------------------
+            # 1. Compute Potential for s' (next state)
+            Phi_next, S_main_next, S_wrist_next, min_dist_m_next, min_dist_w_next, rem_t_m_next, rem_t_w_next = self._compute_potential(batch["next", "dino"])
+            
+            # 2. Compute Potential for s (current state)
+            Phi_curr, S_main_curr, S_wrist_curr, min_dist_m_curr, min_dist_w_curr, rem_t_m_curr, rem_t_w_curr = self._compute_potential(batch["dino"])
+            
+            # 3. PBRS Difference (using self.gamma)
+            # Apply terminal masking: Phi(s_{terminal}) = 0
+            # batch["nonterminal"] is True when episode is ongoing, False when done.
+            gamma_env = self.gamma
+            nonterminal_mask = batch["nonterminal"].squeeze().detach().cpu().numpy()
+            
+            r_dense = (gamma_env * Phi_next * nonterminal_mask - Phi_curr) * self.p_reward
+            
+            # Add PBRS dense reward to batch
+            add_rew = torch.as_tensor(r_dense, device=self.device, dtype=torch.float32).view(batch["next", "reward"].shape)
+            batch["next", "reward"] += add_rew
+            
+            # 4. Action regularization term (using S_next as reference for ID boundary)
+            action_l2_penalty_mean = 0.0
+            if self.action_l2_reg_weight > 0:
+                a_total = batch["action"]
+                a_base = batch["obs", "observation.base_action"]
+                a_res = a_total - a_base
+                action_l2 = (a_res ** 2).sum(dim=-1)
+                
+                S_joint = torch.as_tensor(S_main_next * S_wrist_next, device=self.device, dtype=torch.float32)
+                r_reg = self.action_l2_reg_weight * S_joint * action_l2
+                r_reg = r_reg.view(batch["next", "reward"].shape)
+                
+                batch["next", "reward"] -= r_reg
+                action_l2_penalty_mean = r_reg.mean().item()
+                
+            return {
+                "lane/Phi_next_avg": Phi_next.mean(),
+                "lane/Phi_curr_avg": Phi_curr.mean(),
+                "lane/Phi_next_hist": wandb.Histogram(Phi_next),
+                "lane/PBRS_dense_avg": r_dense.mean(),
+                "lane/PBRS_dense_min": r_dense.min(),
+                "lane/PBRS_dense_max": r_dense.max(),
+                "lane/PBRS_dense_hist": wandb.Histogram(r_dense),
+                "lane/S_main_next_avg": S_main_next.mean(),
+                "lane/S_main_next_hist": wandb.Histogram(S_main_next),
+                "lane/S_wrist_next_avg": S_wrist_next.mean(),
+                "lane/S_wrist_next_hist": wandb.Histogram(S_wrist_next),
+                "lane/min_dist_main_next_avg": min_dist_m_next.mean(),
+                "lane/min_dist_wrist_next_avg": min_dist_w_next.mean(),
+                "lane/rem_t_main_next_avg": rem_t_m_next.mean(),
+                "lane/rem_t_wrist_next_avg": rem_t_w_next.mean(),
+                "lane/action_l2_penalty": action_l2_penalty_mean,
+                "lane/ref_one_step_dist_main": self.ref_one_step_dist_main,
+                "lane/ref_one_step_dist_wrist": self.ref_one_step_dist_wrist
+            }
+
+        elif self.reward_type == "reward_pbrs_no_step_penalty_success1000":
+            # 0. Cancel base -1.0 step penalty
+            batch["next", "reward"] = torch.where(
+                batch["next", "reward"] < 0.0,
+                batch["next", "reward"] + 1.0,
+                batch["next", "reward"]
+            )
+            # 0.5. Inflate success reward from 100.0 to 1000.0 to overcome PBRS terminal drop
+            batch["next", "reward"] = torch.where(
+                batch["next", "reward"] == 100.0,
+                torch.tensor(1000.0, device=self.device, dtype=torch.float32),
+                batch["next", "reward"]
+            )
+            # -------------------------------------------------------------
+            # Potential-Based Reward Shaping (PBRS)
+            # F(s, a, s') = gamma * Phi(s') - Phi(s)
+            # -------------------------------------------------------------
+            # 1. Compute Potential for s' (next state)
+            Phi_next, S_main_next, S_wrist_next, min_dist_m_next, min_dist_w_next, rem_t_m_next, rem_t_w_next = self._compute_potential(batch["next", "dino"])
+            
+            # 2. Compute Potential for s (current state)
+            Phi_curr, S_main_curr, S_wrist_curr, min_dist_m_curr, min_dist_w_curr, rem_t_m_curr, rem_t_w_curr = self._compute_potential(batch["dino"])
+            
+            # 3. PBRS Difference (using self.gamma)
+            # Apply terminal masking: Phi(s_{terminal}) = 0
+            # batch["nonterminal"] is True when episode is ongoing, False when done.
+            gamma_env = self.gamma
+            nonterminal_mask = batch["nonterminal"].squeeze().detach().cpu().numpy()
+            
+            r_dense = (gamma_env * Phi_next * nonterminal_mask - Phi_curr) * self.p_reward
+            
+            # Add PBRS dense reward to batch
+            add_rew = torch.as_tensor(r_dense, device=self.device, dtype=torch.float32).view(batch["next", "reward"].shape)
+            batch["next", "reward"] += add_rew
+            
+            # 4. Action regularization term (using S_next as reference for ID boundary)
+            action_l2_penalty_mean = 0.0
+            if self.action_l2_reg_weight > 0:
+                a_total = batch["action"]
+                a_base = batch["obs", "observation.base_action"]
+                a_res = a_total - a_base
+                action_l2 = (a_res ** 2).sum(dim=-1)
+                
+                S_joint = torch.as_tensor(S_main_next * S_wrist_next, device=self.device, dtype=torch.float32)
+                r_reg = self.action_l2_reg_weight * S_joint * action_l2
+                r_reg = r_reg.view(batch["next", "reward"].shape)
+                
+                batch["next", "reward"] -= r_reg
+                action_l2_penalty_mean = r_reg.mean().item()
+                
+            return {
+                "lane/Phi_next_avg": Phi_next.mean(),
+                "lane/Phi_curr_avg": Phi_curr.mean(),
+                "lane/Phi_next_hist": wandb.Histogram(Phi_next),
+                "lane/PBRS_dense_avg": r_dense.mean(),
+                "lane/PBRS_dense_min": r_dense.min(),
+                "lane/PBRS_dense_max": r_dense.max(),
+                "lane/PBRS_dense_hist": wandb.Histogram(r_dense),
+                "lane/S_main_next_avg": S_main_next.mean(),
+                "lane/S_main_next_hist": wandb.Histogram(S_main_next),
+                "lane/S_wrist_next_avg": S_wrist_next.mean(),
+                "lane/S_wrist_next_hist": wandb.Histogram(S_wrist_next),
+                "lane/min_dist_main_next_avg": min_dist_m_next.mean(),
+                "lane/min_dist_wrist_next_avg": min_dist_w_next.mean(),
+                "lane/rem_t_main_next_avg": rem_t_m_next.mean(),
+                "lane/rem_t_wrist_next_avg": rem_t_w_next.mean(),
+                "lane/action_l2_penalty": action_l2_penalty_mean,
+                "lane/ref_one_step_dist_main": self.ref_one_step_dist_main,
+                "lane/ref_one_step_dist_wrist": self.ref_one_step_dist_wrist
+            }
+
+        elif self.reward_type == "reward_pbrs_no_step_penalty_success1":
+            # 0. Cancel base -1.0 step penalty
+            batch["next", "reward"] = torch.where(
+                batch["next", "reward"] < 0.0,
+                batch["next", "reward"] + 1.0,
+                batch["next", "reward"]
+            )
+            # 0.5. Downscale success reward from 100.0 to 1.0
+            batch["next", "reward"] = torch.where(
+                batch["next", "reward"] == 100.0,
+                torch.tensor(1.0, device=self.device, dtype=torch.float32),
                 batch["next", "reward"]
             )
             # -------------------------------------------------------------

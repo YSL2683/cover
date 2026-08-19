@@ -52,7 +52,7 @@ def visualize_analysis(rl_latent_path, script_dir):
         return
         
     demo_data = torch.load(demo_latent_path, map_location="cpu", weights_only=False)
-    z_f_demo = demo_data["z_demo_front"]
+    z_f_demo = demo_data["z_demo_main"]
     z_w_demo = demo_data["z_demo_wrist"]
     num_demos = len(z_f_demo)
     
@@ -60,7 +60,7 @@ def visualize_analysis(rl_latent_path, script_dir):
     has_rl = rl_latent_path is not None and os.path.exists(rl_latent_path)
     if has_rl:
         rl_data = torch.load(rl_latent_path, map_location="cpu", weights_only=False)
-        z_f_rl = rl_data["z_rl_front"]
+        z_f_rl = rl_data["z_rl_main"]
         z_w_rl = rl_data["z_rl_wrist"]
         num_rl = len(z_f_rl)
         print(f"Loaded {num_rl} RL successful trajectories from {rl_latent_path}.")
@@ -212,7 +212,7 @@ def visualize_analysis(rl_latent_path, script_dir):
         rl_traj_w_2d = []
 
     ax1 = plt.subplot(1, 2, 1)
-    plot_kde_and_trajectories(ax1, f_demo_2d, demo_traj_f_2d, rl_traj_f_2d, goal_f_demo_2d, "Front Camera (PCA projected on ID variance)")
+    plot_kde_and_trajectories(ax1, f_demo_2d, demo_traj_f_2d, rl_traj_f_2d, goal_f_demo_2d, "Main Camera (PCA projected on ID variance)")
     
     ax2 = plt.subplot(1, 2, 2)
     plot_kde_and_trajectories(ax2, w_demo_2d, demo_traj_w_2d, rl_traj_w_2d, goal_w_demo_2d, "Wrist Camera (PCA projected on ID variance)")
@@ -249,7 +249,7 @@ def plot_eval_latents(z_f_rl, z_w_rl, script_dir, save_path, step=None, e2c_dir=
         return
         
     demo_data = torch.load(demo_latent_path, map_location="cpu", weights_only=False)
-    z_f_demo = demo_data["z_demo_front"]
+    z_f_demo = demo_data["z_demo_main"]
     z_w_demo = demo_data["z_demo_wrist"]
     
     all_z_f_demo = np.concatenate([z.squeeze(0).numpy() for z in z_f_demo], axis=0)
@@ -308,7 +308,7 @@ def plot_eval_latents(z_f_rl, z_w_rl, script_dir, save_path, step=None, e2c_dir=
                     if traj_numpy.ndim == 1:
                         traj_numpy = np.expand_dims(traj_numpy, 0)
                 
-                traj_2d = pca_f.transform(traj_numpy) if "Front" in title else pca_w.transform(traj_numpy)
+                traj_2d = pca_f.transform(traj_numpy) if "Main" in title else pca_w.transform(traj_numpy)
                 n_points = len(traj_2d)
                 
                 if i == 0:
@@ -330,7 +330,7 @@ def plot_eval_latents(z_f_rl, z_w_rl, script_dir, save_path, step=None, e2c_dir=
 
     plt.figure(figsize=(14, 7))
     ax1 = plt.subplot(1, 2, 1)
-    plot_single(ax1, f_demo_2d, demo_traj_f_2d, z_f_rl, "Front Camera (PCA projected on ID variance)")
+    plot_single(ax1, f_demo_2d, demo_traj_f_2d, z_f_rl, "Main Camera (PCA projected on ID variance)")
     
     ax2 = plt.subplot(1, 2, 2)
     plot_single(ax2, w_demo_2d, demo_traj_w_2d, z_w_rl, "Wrist Camera (PCA projected on ID variance)")
@@ -366,7 +366,7 @@ def main():
         print("\n--- Testing Eval Visualization Logic ---")
         try:
             data = torch.load(args.latent_path, map_location="cpu")
-            z_f_rl = data["z_rl_front"]
+            z_f_rl = data["z_rl_main"]
             z_w_rl = data["z_rl_wrist"]
             e2c_dir = os.path.join(script_dir, "lane/pretrained_e2c/lift")
             eval_save_path = os.path.join(os.path.dirname(args.latent_path), "test_eval_plot.png")
@@ -396,7 +396,7 @@ def main():
             config_name="residual_td3_dexmg_config",
             overrides=[
                 "task=Lift",
-                "rl_camera=['observation.images.frontview','observation.images.robot0_eye_in_hand']"
+                "rl_camera=['observation.images.agentview','observation.images.robot0_eye_in_hand']"
             ]
         )
 
@@ -457,7 +457,7 @@ def main():
     e2c_w = MLPE2C(obs_shape=(384,), action_dim=action_dim, z_dimension=16).to(device)
     
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    e2c_f.load_state_dict(torch.load(os.path.join(script_dir, "lane/pretrained_e2c/lift/e2c_front.pt"), map_location=device))
+    e2c_f.load_state_dict(torch.load(os.path.join(script_dir, "lane/pretrained_e2c/lift/e2c_main.pt"), map_location=device))
     e2c_w.load_state_dict(torch.load(os.path.join(script_dir, "lane/pretrained_e2c/lift/e2c_wrist.pt"), map_location=device))
     e2c_f.eval()
     e2c_w.eval()
@@ -480,7 +480,7 @@ def main():
             with torch.no_grad():
                 action = agent.act(obs, eval_mode=True, stddev=0.0, cpu=False)
 
-            front_img = obs["observation.images.frontview"]
+            front_img = obs["observation.images.agentview"]
             wrist_img = obs["observation.images.robot0_eye_in_hand"]
             obs_img = torch.cat([front_img, wrist_img], dim=1)
 
@@ -518,7 +518,7 @@ def main():
 
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     torch.save({
-        "z_rl_front": z_rl_front,
+        "z_rl_main": z_rl_front,
         "z_rl_wrist": z_rl_wrist,
         "rl_lengths": rl_lengths
     }, out_path)

@@ -264,7 +264,7 @@ def run_dexmg_evaluation(
                 sys.path.append(project_dir)
             from visualize_rl_latents import get_dino_features
             
-            obs_img = torch.cat([obs["observation.images.frontview"], obs["observation.images.robot0_eye_in_hand"]], dim=1)
+            obs_img = torch.cat([obs[lane_shaper.main_cam_key], obs["observation.images.robot0_eye_in_hand"]], dim=1)
             feat_f, feat_w = get_dino_features(obs_img, lane_shaper.dino, device)
             with torch.no_grad():
                 if hasattr(lane_shaper, 'e2c_unified') and lane_shaper.e2c_unified is not None:
