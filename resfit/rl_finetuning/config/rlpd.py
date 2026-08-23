@@ -124,6 +124,7 @@ class QAgentConfig:
     freeze_encoder: bool = False  # Whether to freeze encoder parameters (no gradient updates)
 
     clip_q_target_to_reward_range: bool = False
+    q_target_clip_max: float | None = None
 
     # TD3 target action noise configuration
     target_action_noise: bool = True  # Whether to add noise to target actions in TD3

@@ -189,7 +189,7 @@ class RobosuiteGymWrapper:
             "has_offscreen_renderer": True,
             "ignore_done": False,
             "use_camera_obs": True,
-            "control_freq": 10,
+            "control_freq": 20,
             "camera_names": camera_names,
             "camera_heights": self.camera_size,
             "camera_widths": self.camera_size,

@@ -275,7 +275,7 @@ def main():
 
     # Collect 5 successful episodes
     print("Collecting 5 successful episodes...")
-    max_steps = 150
+    max_steps = 300
     success_count = 0
     
     episodes_data = []

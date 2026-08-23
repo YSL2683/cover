@@ -21,7 +21,7 @@ OFFLINE_DATA_DIR="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/ysl2683/lane_nu
 
 # Name for Weights & Biases
 WANDB_PROJECT="square_residual_rl"
-WANDB_NAME="${TASK}_${REWARD_TYPE}_beta${BETA}_scale${P_REWARD}"
+WANDB_NAME="${TASK}_${REWARD_TYPE}_beta${BETA}_scale${P_REWARD}_qclipping"
 
 # Parse command line arguments
 while [[ "$#" -gt 0 ]]; do
@@ -43,7 +43,7 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 echo "=================================================="
-echo "Starting Residual TD3 Training for SquareID with V-PBRS"
+echo "Starting Residual TD3 Training for SquareID with V-PBRS (Q-Clipping Max 1.0)"
 echo "Target Task     : SquareID (In-Distribution Position & Orientation)"
 echo "Reward Type     : $REWARD_TYPE"
 echo "Reward Scale    : $P_REWARD"
@@ -86,6 +86,7 @@ python resfit/rl_finetuning/scripts/train_residual_td3.py \
     algo.reward_w_w="${W_W}" \
     algo.p_reward="${P_REWARD}" \
     agent.actor.action_l2_reg_weight="${RES_ACTION_REG}" \
+    agent.q_target_clip_max=1.0 \
     algo.freeze_e2c="${FREEZE_E2C}" \
     base_policy_path="${BASE_POLICY_PATH}" \
     e2c_dir="${E2C_DIR}" \

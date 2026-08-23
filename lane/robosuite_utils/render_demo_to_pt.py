@@ -12,9 +12,9 @@ def main():
     # Target folder (as specified: @[lane/demo/robosuite_nut_assembly_square] + number of demos)
     num_demos = 0
     with h5py.File(hdf5_path, "r") as f:
-        num_demos = len(f["data"].keys())
+        num_demos = min(len(f["data"].keys()), 50)
         
-    target_folder = f"/home/moai/ysl_ws/cover/lane/demo/robosuite_nut_assembly_square/{num_demos}"
+    target_folder = f"/home/moai/ysl_ws/cover/lane/demo/robomimic_square/{num_demos}"
     if not os.path.isdir(target_folder):
         os.makedirs(target_folder)
 
@@ -23,14 +23,14 @@ def main():
         env_name="NutAssemblySquare",
         robots="Panda",
         controller_configs=config,
-        camera_names=["frontview", "robot0_eye_in_hand"],
+        camera_names=["agentview", "robot0_eye_in_hand"],
         camera_heights=128,
         camera_widths=128,
-        control_freq=10,
+        control_freq=20,
         horizon=300,
         has_renderer=False,
         has_offscreen_renderer=True,
-        render_camera="frontview",
+        render_camera="agentview",
     )
     
     # Hide all sites (nut center, gripper visualizers, green lines, etc.)
@@ -38,8 +38,8 @@ def main():
 
     f = h5py.File(hdf5_path, "r")
     demos = list(f["data"].keys())
-    # Sort demos numerically
-    demos = sorted(demos, key=lambda x: int(x.split("_")[1]))
+    # Sort demos numerically and slice first 50
+    demos = sorted(demos, key=lambda x: int(x.split("_")[1]))[:50]
 
     obs_list = []
     next_obs_list = []
@@ -57,8 +57,8 @@ def main():
         
         ep_obs, ep_next_obs, ep_actions, ep_rewards, ep_not_dones, ep_states = [], [], [], [], [], []
         
-        # Downsample to 10Hz (take every 2nd frame)
-        indices = list(range(0, len(states), 2))
+        # Keep 20Hz (take all frames)
+        indices = list(range(0, len(states)))
         
         rendered_images = []
         is_success = []
@@ -70,7 +70,7 @@ def main():
             obs = env._get_observations(force_update=True)
             
             img_obs = np.concatenate(
-                [obs["frontview_image"][::-1], obs["robot0_eye_in_hand_image"][::-1]], axis=2
+                [obs["agentview_image"][::-1], obs["robot0_eye_in_hand_image"][::-1]], axis=2
             ).transpose((2, 0, 1))
             
             rob_state = np.concatenate([
@@ -84,7 +84,7 @@ def main():
             is_success.append(env._check_success())
             
         # Get one more frame for the final next_obs
-        last_idx = indices[-1] + 2
+        last_idx = indices[-1] + 1
         if last_idx >= len(states):
             last_idx = len(states) - 1
             
@@ -92,7 +92,7 @@ def main():
         env.sim.forward()
         obs = env._get_observations(force_update=True)
         img_obs = np.concatenate(
-            [obs["frontview_image"][::-1], obs["robot0_eye_in_hand_image"][::-1]], axis=2
+            [obs["agentview_image"][::-1], obs["robot0_eye_in_hand_image"][::-1]], axis=2
         ).transpose((2, 0, 1))
         rendered_images.append(img_obs)
         final_succ = env._check_success()
@@ -103,15 +103,8 @@ def main():
             ep_next_obs.append(rendered_images[i+1])
             
             orig_idx = indices[i]
-            # Aggregate actions for downsampling: sum translations/rotations, take last gripper action
-            if orig_idx + 1 < len(actions):
-                a1 = actions[orig_idx]
-                a2 = actions[orig_idx+1]
-                agg_action = np.zeros(7)
-                agg_action[:6] = a1[:6] + a2[:6]
-                agg_action[6] = a2[6]
-            else:
-                agg_action = actions[orig_idx]
+            # Use original 20Hz action directly
+            agg_action = actions[orig_idx]
                 
             ep_actions.append(agg_action)
             

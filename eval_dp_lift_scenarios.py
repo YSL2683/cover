@@ -24,7 +24,7 @@ from robosuite.controllers import load_controller_config
 from resfit.lerobot.utils.load_policy import load_policy
 
 CUBE_HALF   = 0.025    # ±2.5cm → 5x5cm init area (matches all 3 shell scripts)
-MAX_STEPS   = 150
+MAX_STEPS   = 300
 SUCCESS_HOLD = 5
 FPS         = 20
 CAMERA_SIZE = 256
@@ -103,7 +103,7 @@ def make_env(scenario: str):
         controller_configs=config,
         has_renderer=False,
         has_offscreen_renderer=True,
-        control_freq=10,
+        control_freq=20,
         horizon=MAX_STEPS,
         use_object_obs=True,
         use_camera_obs=True,

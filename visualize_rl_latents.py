@@ -468,7 +468,7 @@ def main():
     rl_lengths = []
 
     success_count = 0
-    max_steps = 150
+    max_steps = 300
 
     while success_count < args.n_episodes:
         obs, _ = env.reset()

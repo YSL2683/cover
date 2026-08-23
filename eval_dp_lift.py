@@ -7,7 +7,7 @@ from resfit.lerobot.utils.load_policy import load_policy
 from pathlib import Path
 import imageio
 
-def eval_policy(policy_path, n_episodes=20, max_steps=150, video_path="eval_video.mp4", cube_range=0.025):
+def eval_policy(policy_path, n_episodes=20, max_steps=300, video_path="eval_video.mp4", cube_range=0.025):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
     print(f"Loading policy from {policy_path}...")
@@ -24,7 +24,7 @@ def eval_policy(policy_path, n_episodes=20, max_steps=150, video_path="eval_vide
         controller_configs=config,
         has_renderer=False,
         has_offscreen_renderer=True,
-        control_freq=10,
+        control_freq=20,
         horizon=max_steps,
         use_object_obs=True,
         use_camera_obs=True,

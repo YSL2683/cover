@@ -190,12 +190,12 @@ def _add_transitions_to_buffer(
         to_uint8(next_obs_i, image_keys)
 
         # Map raw environment reward (0/1 sparse) to shaped base reward:
-        # success (reward > 0.5) -> +100.0, step penalty -> -1.0
+        # success (reward > 0.5) -> +1.0, step penalty -> 0.0
         raw_r = reward[i]
         shaped_r = torch.where(
             raw_r > 0.5,
-            torch.tensor(100.0, dtype=torch.float32, device=raw_r.device),
-            torch.tensor(-1.0, dtype=torch.float32, device=raw_r.device),
+            torch.tensor(1.0, dtype=torch.float32, device=raw_r.device),
+            torch.tensor(0.0, dtype=torch.float32, device=raw_r.device),
         )
 
         td = TensorDict(
@@ -652,7 +652,7 @@ def main(cfg: ResidualTD3DexmgConfig):
                             {
                                 "obs": TensorDict(curr_obs, batch_size=[]),
                                 "done": torch.tensor(done_flag, dtype=torch.bool),
-                                "reward": torch.tensor(100.0 if done_flag else -1.0, dtype=torch.float32),
+                                "reward": torch.tensor(1.0 if done_flag else 0.0, dtype=torch.float32),
                             },
                             batch_size=[],
                         ),

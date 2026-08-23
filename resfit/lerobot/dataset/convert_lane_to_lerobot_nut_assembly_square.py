@@ -67,7 +67,7 @@ def convert_lane_to_lerobot(
     dataset_repo_id = repo_id if repo_id else output_dir.name
     dataset = LeRobotDataset.create(
         repo_id=dataset_repo_id,
-        fps=10,
+        fps=20,
         features=features,
         root=str(output_dir),
         use_videos=True,

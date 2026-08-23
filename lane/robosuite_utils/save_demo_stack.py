@@ -19,7 +19,7 @@ env = suite.make(
     camera_names=["frontview", "robot0_eye_in_hand"],
     camera_heights=128,
     camera_widths=128,
-    control_freq=10,
+    control_freq=20,
     horizon=80,
 )
 
