@@ -474,9 +474,13 @@ def main(cfg: argparse.Namespace):
 
     policy_cfg = make_policy_config(cfg.policy, **policy_kwargs)
 
-    # Set the chunk size to 20 (env is at 20 fps)
-    policy_cfg.chunk_size = 20
-    policy_cfg.n_action_steps = 20
+    # Set the chunk size (open-loop execution) for the policy
+    # Predict 16 steps, execute 8 steps at 20 fps = 0.4 seconds open-loop execution
+    if hasattr(policy_cfg, "chunk_size"):
+        policy_cfg.chunk_size = 16
+    if hasattr(policy_cfg, "horizon"):
+        policy_cfg.horizon = 16
+    policy_cfg.n_action_steps = 8
 
     if isinstance(cfg.device, str):
         # e.g. "cuda:0" -> "cuda"

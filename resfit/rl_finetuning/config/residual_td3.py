@@ -115,8 +115,8 @@ class ResidualTD3DexmgConfig(RLPDDexmgConfig):
     # ------------------------------------------------------------------
     offline_data: OfflineDataConfig | None = field(
         default_factory=lambda: OfflineDataConfig(
-            name="ysl2683/lane_lift_id_20_aligned",
-            num_episodes=20,
+            name="ysl2683/robomimic_square_v15_50",
+            num_episodes=50,
         )
     )
 
@@ -156,13 +156,15 @@ class ResidualTD3CanConfig(ResidualTD3DexmgConfig):
     offline_data: OfflineDataConfig = field(
         default_factory=lambda: OfflineDataConfig(
             name="ankile/robomimic-mh-can-image",
-            num_episodes=300,
+            num_episodes=50,
         )
     )
 
     base_policy: BasePolicyConfig = field(
         default_factory=lambda: BasePolicyConfig(
-            wandb_id="robomimic-can-bc/sdo8cku7",
+            wandb_id="TODO",
+            wt_type="best",
+            wt_version="latest",
         )
     )
 
@@ -171,12 +173,12 @@ class ResidualTD3CanConfig(ResidualTD3DexmgConfig):
 
 @dataclass
 class ResidualTD3SquareConfig(ResidualTD3DexmgConfig):
-    task: str = "SquareOOD"
+    task: str = "Square"
 
     offline_data: OfflineDataConfig = field(
         default_factory=lambda: OfflineDataConfig(
-            name="ysl2683/lane_nut_assembly_square_id_20",
-            num_episodes=20,
+            name="ysl2683/robomimic_square_v15_50",
+            num_episodes=50,
         )
     )
 
@@ -263,7 +265,7 @@ class ResidualTD3CoffeeConfig(ResidualTD3BoxCleanConfig):
     )
 
 @dataclass
-class ResidualTD3TwoArmCanSortConfig(ResidualTD3BoxCleanConfig):
+class ResidualTD3LiftConfig(ResidualTD3BoxCleanConfig):
     task: str = "Lift"
 
     rl_camera: list[str] = field(
@@ -299,4 +301,4 @@ cs.store(name="residual_td3_can_config", node=ResidualTD3CanConfig)
 cs.store(name="residual_td3_square_config", node=ResidualTD3SquareConfig)
 cs.store(name="residual_td3_box_clean_config", node=ResidualTD3BoxCleanConfig)
 cs.store(name="residual_td3_coffee_config", node=ResidualTD3CoffeeConfig)
-cs.store(name="residual_td3_two_arm_cansort_config", node=ResidualTD3TwoArmCanSortConfig)
+cs.store(name="residual_td3_lift_config", node=ResidualTD3LiftConfig)

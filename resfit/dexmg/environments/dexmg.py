@@ -605,7 +605,7 @@ class RobosuiteGymWrapper:
 
             # Robosuite images are (H, W, C) in uint8, need (C, H, W) in float32
             if robosuite_key in obs:
-                img = obs[robosuite_key][::-1]
+                img = obs[robosuite_key]
                 img = img.astype(np.float32) / 255.0  # Convert to float32 and normalize
                 img = np.transpose(img, (2, 0, 1))  # (H, W, C) -> (C, H, W)
 

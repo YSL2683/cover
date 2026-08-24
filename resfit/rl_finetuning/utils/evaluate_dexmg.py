@@ -63,21 +63,26 @@ def run_dexmg_evaluation(
         pil_img = Image.fromarray(frame)
         draw = ImageDraw.Draw(pil_img)
 
+        if font is None:
+            from PIL import ImageFont
+            font = ImageFont.load_default(size=6)
+
         # Status label ---------------------------------------------------
         status_text = "SUCCESS" if is_success else "FAIL"
         status_color = (0, 255, 0) if is_success else (255, 0, 0)
 
-        y = 10
-        dy = 15
-        draw.text((10, y), f"Env {env_idx + 1}", fill=(255, 255, 255), font=font)
+        x = 0
+        y = 0
+        dy = 7
+        draw.text((x, y), f"Env {env_idx + 1}", fill=(0, 0, 0), font=font)
         y += dy
-        draw.text((10, y), f"Episode {episode_num}/{total_episodes}", fill=(255, 255, 255), font=font)
+        draw.text((x, y), f"Episode {episode_num}/{total_episodes}", fill=(0, 0, 0), font=font)
         y += dy
-        draw.text((10, y), f"Step {step_idx}", fill=(255, 255, 255), font=font)
+        draw.text((x, y), f"Step {step_idx}", fill=(0, 0, 0), font=font)
         y += dy
-        draw.text((10, y), status_text, fill=status_color, font=font)
+        draw.text((x, y), status_text, fill=status_color, font=font)
         y += dy
-        draw.text((10, y), f"Q = {q_value:.2f}", fill=(255, 255, 255), font=font)
+        draw.text((x, y), f"Q = {q_value:.2f}", fill=(0, 0, 0), font=font)
 
         return np.asarray(pil_img)
 

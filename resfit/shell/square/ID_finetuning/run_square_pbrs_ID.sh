@@ -15,7 +15,7 @@ TASK="Square"
 RES_ACTION_REG=0.0005  # Regularization for residual action magnitude
 
 # Base policy path (placeholder pointing to policy in resfit/my_lerobot_data)
-BASE_POLICY_PATH="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/bc_run_2026-08-23_21-14-35_robomimic_square_v15_50_diffusion/best_step_14000/policy"
+BASE_POLICY_PATH="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/bc_run_2026-08-23_21-14-35_robomimic_square_v15_50_diffusion/policy_step_70000/policy"
 E2C_DIR="/home/moai/ysl_ws/cover/lane/pretrained_e2c/square"
 OFFLINE_DATA_DIR="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/ysl2683/robomimic_square_v15_50"
 
