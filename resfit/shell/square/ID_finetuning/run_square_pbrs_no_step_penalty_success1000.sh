@@ -14,9 +14,9 @@ FREEZE_E2C="True"
 TASK="SquareID"
 
 # Base policy path (placeholder pointing to policy in resfit/my_lerobot_data)
-BASE_POLICY_PATH="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/bc_run_2026-08-16_15-42-54_lane_square_id_50_diffusion/best_step_55000/policy"
+BASE_POLICY_PATH="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/bc_run_2026-08-23_21-14-35_robomimic_square_v15_50_diffusion/best_step_14000/policy"
 E2C_DIR="/home/moai/ysl_ws/cover/lane/pretrained_e2c/square"
-OFFLINE_DATA_DIR="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/ysl2683/lane_square_id_50"
+OFFLINE_DATA_DIR="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/ysl2683/robomimic_square_v15_50"
 
 # Name for Weights & Biases
 WANDB_PROJECT="square_residual_rl"
@@ -34,7 +34,7 @@ while [[ "$#" -gt 0 ]]; do
         --seed) SEED="$2"; shift ;;
         --wandb_name) WANDB_NAME="$2"; shift ;;
         --freeze_e2c) FREEZE_E2C="$2"; shift ;;
-        --base_policy_path) BASE_POLICY_PATH="$2"; shift ;;
+        --base_policy_path) BASE_POLICY_PATH="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/bc_run_2026-08-23_21-14-35_robomimic_square_v15_50_diffusion/best_step_14000/policy"
         --e2c_dir) E2C_DIR="$2"; shift ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
     esac
