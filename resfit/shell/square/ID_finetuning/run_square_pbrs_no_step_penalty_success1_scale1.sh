@@ -3,7 +3,7 @@
 # Note: Uses task-isolated CACHE_DIR to support concurrent multi-task Residual RL training.
 
 # Default parameters
-REWARD_TYPE="reward_pbrs"
+REWARD_TYPE="reward_pbrs_no_step_penalty_success1"
 BETA=1.0
 ALPHA=0.98
 W_M=0.3
@@ -12,12 +12,11 @@ P_REWARD=1.0  # Scaling factor for PBRS difference magnitude
 SEED=42
 FREEZE_E2C="True"
 TASK="SquareID"
-RES_ACTION_REG=0.0005  # Regularization for residual action magnitude
 
 # Base policy path (placeholder pointing to policy in resfit/my_lerobot_data)
-BASE_POLICY_PATH="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/bc_run_2026-08-18_13-56-07_lane_nut_assembly_square_id_50_diffusion/best_step_50000/policy"
-E2C_DIR="/home/moai/ysl_ws/cover/lane/pretrained_e2c/nut_assembly_square"
-OFFLINE_DATA_DIR="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/ysl2683/lane_nut_assembly_square_id_50"
+BASE_POLICY_PATH="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/bc_run_2026-08-16_15-42-54_lane_square_id_50_diffusion/best_step_55000/policy"
+E2C_DIR="/home/moai/ysl_ws/cover/lane/pretrained_e2c/square"
+OFFLINE_DATA_DIR="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/ysl2683/lane_square_id_50"
 
 # Name for Weights & Biases
 WANDB_PROJECT="square_residual_rl"
@@ -43,7 +42,7 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 echo "=================================================="
-echo "Starting Residual TD3 Training for SquareID with V-PBRS"
+echo "Starting Residual TD3 Training for SquareID with V-PBRS (No Step Penalty, Success 1, Scale 1)"
 echo "Target Task     : SquareID (In-Distribution Position & Orientation)"
 echo "Reward Type     : $REWARD_TYPE"
 echo "Reward Scale    : $P_REWARD"
@@ -62,7 +61,7 @@ echo "=================================================="
 # Environment variables & Isolated Cache Directory for Multi-Task Concurrency
 export PYTHONUNBUFFERED=1
 export PYTHONPATH=/home/moai/ysl_ws/cover:$PYTHONPATH
-export CACHE_DIR=/home/moai/ysl_ws/cover/scratch/nut_assembly_square
+export CACHE_DIR=/home/moai/ysl_ws/cover/scratch/square
 export HF_HUB_OFFLINE=1
 export LEROBOT_OFFLINE=1
 
@@ -85,7 +84,6 @@ python resfit/rl_finetuning/scripts/train_residual_td3.py \
     algo.reward_w_m="${W_M}" \
     algo.reward_w_w="${W_W}" \
     algo.p_reward="${P_REWARD}" \
-    agent.actor.action_l2_reg_weight="${RES_ACTION_REG}" \
     algo.freeze_e2c="${FREEZE_E2C}" \
     base_policy_path="${BASE_POLICY_PATH}" \
     e2c_dir="${E2C_DIR}" \

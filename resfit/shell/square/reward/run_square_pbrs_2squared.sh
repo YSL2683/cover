@@ -1,26 +1,25 @@
 #!/bin/bash
-# Script to run Residual TD3 with Potential-Based Reward Shaping (PBRS) for SquareID
+# Script to run Residual TD3 with Potential-Based Reward Shaping (PBRS) for SquareOOD
 # Note: Uses task-isolated CACHE_DIR to support concurrent multi-task Residual RL training.
 
 # Default parameters
-REWARD_TYPE="reward_pbrs_no_step_penalty_success1"
+REWARD_TYPE="reward_pbrs_2squared"
 BETA=1.0
 ALPHA=0.98
 W_M=0.3
 W_W=0.7
-P_REWARD=1.0  # Scaling factor for PBRS difference magnitude
+P_REWARD=100.0  # Scaling factor for PBRS difference magnitude
 SEED=42
 FREEZE_E2C="True"
-TASK="SquareID"
 
 # Base policy path (placeholder pointing to policy in resfit/my_lerobot_data)
-BASE_POLICY_PATH="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/bc_run_2026-08-16_15-42-54_lane_nut_assembly_square_id_50_diffusion/best_step_55000/policy"
-E2C_DIR="/home/moai/ysl_ws/cover/lane/pretrained_e2c/nut_assembly_square"
-OFFLINE_DATA_DIR="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/ysl2683/lane_nut_assembly_square_id_50"
+BASE_POLICY_PATH="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/bc_run_2026-08-03_12-12-53_lane_square_id_20_diffusion/best/policy"
+E2C_DIR="/home/moai/ysl_ws/cover/lane/pretrained_e2c/square"
+OFFLINE_DATA_DIR="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/ysl2683/lane_square_id_20"
 
 # Name for Weights & Biases
 WANDB_PROJECT="square_residual_rl"
-WANDB_NAME="${TASK}_${REWARD_TYPE}_beta${BETA}_scale${P_REWARD}"
+WANDB_NAME="${REWARD_TYPE}_beta${BETA}_scale${P_REWARD}"
 
 # Parse command line arguments
 while [[ "$#" -gt 0 ]]; do
@@ -42,8 +41,8 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 echo "=================================================="
-echo "Starting Residual TD3 Training for SquareID with V-PBRS (No Step Penalty, Success 1, Scale 1)"
-echo "Target Task     : SquareID (In-Distribution Position & Orientation)"
+echo "Starting Residual TD3 Training for SquareOOD with V-PBRS"
+echo "Target Task     : SquareOOD (Random Position & Random Orientation)"
 echo "Reward Type     : $REWARD_TYPE"
 echo "Reward Scale    : $P_REWARD"
 echo "Beta            : $BETA"
@@ -61,7 +60,7 @@ echo "=================================================="
 # Environment variables & Isolated Cache Directory for Multi-Task Concurrency
 export PYTHONUNBUFFERED=1
 export PYTHONPATH=/home/moai/ysl_ws/cover:$PYTHONPATH
-export CACHE_DIR=/home/moai/ysl_ws/cover/scratch/nut_assembly_square
+export CACHE_DIR=/home/moai/ysl_ws/cover/scratch/square
 export HF_HUB_OFFLINE=1
 export LEROBOT_OFFLINE=1
 
@@ -73,7 +72,7 @@ rm -rf ${CACHE_DIR}/online ${CACHE_DIR}/offline ${CACHE_DIR}/online_buffer_cache
 python resfit/rl_finetuning/scripts/train_residual_td3.py \
     env_modifier.mode=none \
     env_modifier.disturbance=null \
-    task="${TASK}" \
+    task="SquareOOD" \
     rl_camera="['observation.images.agentview','observation.images.robot0_eye_in_hand']" \
     wandb.project="${WANDB_PROJECT}" \
     wandb.name="${WANDB_NAME}" \

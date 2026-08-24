@@ -14,9 +14,9 @@ FREEZE_E2C="True"
 TASK="SquareOOD"
 
 # Base policy path (placeholder pointing to policy in resfit/my_lerobot_data)
-BASE_POLICY_PATH="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/bc_run_2026-08-10_14-18-11_lane_nut_assembly_square_id_50_diffusion/policy_step_130000/policy"
-E2C_DIR="/home/moai/ysl_ws/cover/lane/pretrained_e2c/nut_assembly_square"
-OFFLINE_DATA_DIR="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/ysl2683/lane_nut_assembly_square_id_50"
+BASE_POLICY_PATH="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/bc_run_2026-08-10_14-18-11_lane_square_id_50_diffusion/policy_step_130000/policy"
+E2C_DIR="/home/moai/ysl_ws/cover/lane/pretrained_e2c/square"
+OFFLINE_DATA_DIR="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/ysl2683/lane_square_id_50"
 
 # Name for Weights & Biases
 WANDB_PROJECT="square_residual_rl"
@@ -61,7 +61,7 @@ echo "=================================================="
 # Environment variables & Isolated Cache Directory for Multi-Task Concurrency
 export PYTHONUNBUFFERED=1
 export PYTHONPATH=/home/moai/ysl_ws/cover:$PYTHONPATH
-export CACHE_DIR=/home/moai/ysl_ws/cover/scratch/nut_assembly_square
+export CACHE_DIR=/home/moai/ysl_ws/cover/scratch/square
 export HF_HUB_OFFLINE=1
 export LEROBOT_OFFLINE=1
 

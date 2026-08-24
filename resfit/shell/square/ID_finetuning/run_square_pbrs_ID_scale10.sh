@@ -1,27 +1,26 @@
 #!/bin/bash
-# Ablation Script: Residual TD3 WITHOUT Dense Reward (No PBRS)
-# This serves as a baseline (Sparse Reward only) for SquareID.
+# Script to run Residual TD3 with Potential-Based Reward Shaping (PBRS) for SquareID
 # Note: Uses task-isolated CACHE_DIR to support concurrent multi-task Residual RL training.
 
 # Default parameters
-REWARD_TYPE="none"   # "none" bypasses the shaper completely (no dense reward)
+REWARD_TYPE="reward_pbrs"
 BETA=1.0
 ALPHA=0.98
 W_M=0.3
 W_W=0.7
-P_REWARD=0.0  # Set to 0.0 just to be explicit that there is no dense reward
+P_REWARD=10.0  # Scaling factor for PBRS difference magnitude
 SEED=42
 FREEZE_E2C="True"
 TASK="SquareID"
 
 # Base policy path (placeholder pointing to policy in resfit/my_lerobot_data)
-BASE_POLICY_PATH="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/bc_run_2026-08-18_13-56-07_lane_nut_assembly_square_id_50_diffusion/best_step_50000/policy"
-E2C_DIR="/home/moai/ysl_ws/cover/lane/pretrained_e2c/nut_assembly_square"
-OFFLINE_DATA_DIR="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/ysl2683/lane_nut_assembly_square_id_50"
+BASE_POLICY_PATH="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/bc_run_2026-08-16_15-42-54_lane_square_id_50_diffusion/best_step_55000/policy"
+E2C_DIR="/home/moai/ysl_ws/cover/lane/pretrained_e2c/square"
+OFFLINE_DATA_DIR="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/ysl2683/lane_square_id_50"
 
 # Name for Weights & Biases
 WANDB_PROJECT="square_residual_rl"
-WANDB_NAME="${TASK}_ablation_no_dense_seed${SEED}"
+WANDB_NAME="${TASK}_${REWARD_TYPE}_beta${BETA}_scale${P_REWARD}"
 
 # Parse command line arguments
 while [[ "$#" -gt 0 ]]; do
@@ -43,10 +42,14 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 echo "=================================================="
-echo "Starting Ablation Training for SquareID WITHOUT Dense Reward"
+echo "Starting Residual TD3 Training for SquareID with V-PBRS"
 echo "Target Task     : SquareID (In-Distribution Position & Orientation)"
-echo "Reward Type     : $REWARD_TYPE (No PBRS)"
+echo "Reward Type     : $REWARD_TYPE"
 echo "Reward Scale    : $P_REWARD"
+echo "Beta            : $BETA"
+echo "Alpha           : $ALPHA"
+echo "Main Weight     : $W_M"
+echo "Wrist Weight    : $W_W"
 echo "Seed            : $SEED"
 echo "Freeze E2C      : $FREEZE_E2C"
 echo "WandB Project   : $WANDB_PROJECT"
@@ -58,7 +61,7 @@ echo "=================================================="
 # Environment variables & Isolated Cache Directory for Multi-Task Concurrency
 export PYTHONUNBUFFERED=1
 export PYTHONPATH=/home/moai/ysl_ws/cover:$PYTHONPATH
-export CACHE_DIR=/home/moai/ysl_ws/cover/scratch/nut_assembly_square_ablation_no_dense
+export CACHE_DIR=/home/moai/ysl_ws/cover/scratch/square
 export HF_HUB_OFFLINE=1
 export LEROBOT_OFFLINE=1
 

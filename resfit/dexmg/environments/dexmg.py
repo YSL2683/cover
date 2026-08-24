@@ -605,7 +605,7 @@ class RobosuiteGymWrapper:
 
             # Robosuite images are (H, W, C) in uint8, need (C, H, W) in float32
             if robosuite_key in obs:
-                img = obs[robosuite_key]
+                img = obs[robosuite_key][::-1]
                 img = img.astype(np.float32) / 255.0  # Convert to float32 and normalize
                 img = np.transpose(img, (2, 0, 1))  # (H, W, C) -> (C, H, W)
 
@@ -724,25 +724,41 @@ class RobosuiteGymWrapper:
         return panda_low_dim_keys_multi
 
     def render(self):
-        """Return an RGB frame (H, W, 3, uint8) for video recording."""
+        """Return a concatenated RGB frame (H, W_total, 3, uint8) from last_obs for video recording."""
+        if not hasattr(self, "_last_obs") or self._last_obs is None:
+            return np.zeros((self.render_size[0], self.render_size[1], 3), dtype=np.uint8)
 
-        # Prefer the configured video_key's camera when available
-        camera_name = "agentview"
-        if getattr(self, "video_key", None):
-            # Expect keys like 'observation.images.agentview' → extract last component
-            key = self.video_key
-            if isinstance(key, str) and "." in key:
-                camera_name = key.split(".")[-1]
-            elif isinstance(key, str):
-                camera_name = key
+        img_list = []
+        import numpy as np
+        # Look for observation keys in a fixed order, typically agentview then wrist
+        # The expected image keys are stored in self.expected_image_keys
+        if hasattr(self, 'expected_image_keys'):
+            keys_to_render = [k.replace('_image', '') for k in self.expected_image_keys]
+        else:
+            keys_to_render = ['agentview', 'robot0_eye_in_hand']
 
-        frame = self.env.sim.render(
-            camera_name=camera_name,
-            height=self.render_size[0],
-            width=self.render_size[1],
-        )[::-1]
-
-        return frame  # noqa: RET504
+        for k in keys_to_render:
+            full_key = f"observation.images.{k}"
+            if full_key in self._last_obs:
+                img_t = self._last_obs[full_key]
+                if hasattr(img_t, "cpu"):
+                    img_np = img_t.detach().cpu().numpy()
+                else:
+                    img_np = img_t
+                
+                # if batch dim exists, take the first one
+                if img_np.ndim == 4:
+                    img_np = img_np[0]
+                
+                img_np = (np.clip(img_np, 0.0, 1.0) * 255.0).astype(np.uint8)
+                img_np = np.transpose(img_np, (1, 2, 0)) # C,H,W to H,W,C
+                img_list.append(img_np)
+        
+        if not img_list:
+            return np.zeros((self.render_size[0], self.render_size[1], 3), dtype=np.uint8)
+            
+        frame = np.concatenate(img_list, axis=1)
+        return frame
 
     def set_video_key(self, video_key: str):
         """Set which observation key to use for video recording."""
