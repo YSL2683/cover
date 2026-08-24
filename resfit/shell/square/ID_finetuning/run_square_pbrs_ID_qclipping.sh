@@ -11,7 +11,7 @@ W_W=0.7
 P_REWARD=1.0  # Scaling factor for PBRS difference magnitude
 SEED=42
 FREEZE_E2C="True"
-TASK="SquareID"
+TASK="Square"
 RES_ACTION_REG=0.0005  # Regularization for residual action magnitude
 
 # Base policy path (placeholder pointing to policy in resfit/my_lerobot_data)
@@ -43,8 +43,8 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 echo "=================================================="
-echo "Starting Residual TD3 Training for SquareID with V-PBRS (Q-Clipping Max 1.0)"
-echo "Target Task     : SquareID (In-Distribution Position & Orientation)"
+echo "Starting Residual TD3 Training for Square with V-PBRS (Q-Clipping Max 1.0)"
+echo "Target Task     : $TASK (In-Distribution Position & Orientation)"
 echo "Reward Type     : $REWARD_TYPE"
 echo "Reward Scale    : $P_REWARD"
 echo "Beta            : $BETA"

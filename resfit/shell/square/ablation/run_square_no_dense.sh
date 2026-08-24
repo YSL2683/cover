@@ -12,7 +12,7 @@ W_W=0.7
 P_REWARD=0.0  # Set to 0.0 just to be explicit that there is no dense reward
 SEED=42
 FREEZE_E2C="True"
-TASK="SquareID"
+TASK="Square"
 
 # Base policy path (placeholder pointing to policy in resfit/my_lerobot_data)
 BASE_POLICY_PATH="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/bc_run_2026-08-23_21-14-35_robomimic_square_v15_50_diffusion/best_step_14000/policy"
@@ -43,8 +43,8 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 echo "=================================================="
-echo "Starting Ablation Training for SquareID WITHOUT Dense Reward"
-echo "Target Task     : SquareID (In-Distribution Position & Orientation)"
+echo "Starting Ablation Training for Square WITHOUT Dense Reward"
+echo "Target Task     : $TASK (In-Distribution Position & Orientation)"
 echo "Reward Type     : $REWARD_TYPE (No PBRS)"
 echo "Reward Scale    : $P_REWARD"
 echo "Seed            : $SEED"

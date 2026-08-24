@@ -11,7 +11,7 @@ W_W=0.7
 P_REWARD=1.0  # Scaling factor for PBRS difference magnitude
 SEED=42
 FREEZE_E2C="True"
-TASK="SquareID"
+TASK="Square"
 
 # Base policy path (placeholder pointing to policy in resfit/my_lerobot_data)
 BASE_POLICY_PATH="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/bc_run_2026-08-23_21-14-35_robomimic_square_v15_50_diffusion/best_step_14000/policy"
@@ -42,8 +42,8 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 echo "=================================================="
-echo "Starting Residual TD3 Training for SquareID with V-PBRS (No Step Penalty, Success 1, Scale 1)"
-echo "Target Task     : SquareID (In-Distribution Position & Orientation)"
+echo "Starting Residual TD3 Training for Square with V-PBRS (No Step Penalty, Success 1, Scale 1)"
+echo "Target Task     : $TASK  (In-Distribution Position & Orientation)"
 echo "Reward Type     : $REWARD_TYPE"
 echo "Reward Scale    : $P_REWARD"
 echo "Beta            : $BETA"
