@@ -144,16 +144,19 @@ class BasePolicyVecEnvWrapper:
         # Store the scaled action for replay buffer (already computed above)
         info["scaled_action"] = combined_naction
 
-        # Get next base action from the base policy
+        # 1. Handle policy reset FIRST for terminated OR truncated environments!
+        # This ensures that the policy queue is properly cleared for finished/timed-out episodes
+        # BEFORE we pass the new episode's initial observation (`raw_obs`) to it.
+        done = terminated | truncated
+        if done.any():
+            reset_ids = torch.where(done)[0]
+            self.base_policy.reset(env_ids=reset_ids)
+
+        # 2. Get next base action from the base policy using the fresh observation
         with torch.no_grad():
             base_action = self.base_policy.select_action(raw_obs)
 
         base_naction = self.action_scaler.scale(base_action)
-
-        # Handle policy reset for terminated environments
-        if terminated.any():
-            reset_ids = torch.where(terminated)[0]
-            self.base_policy.reset(env_ids=reset_ids)
 
         # Augment observations with base action and apply state standardization
         augmented_obs = self._augment_obs(raw_obs, base_naction)

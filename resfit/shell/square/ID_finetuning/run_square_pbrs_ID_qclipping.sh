@@ -15,7 +15,7 @@ TASK="Square"
 RES_ACTION_REG=0.0005  # Regularization for residual action magnitude
 
 # Base policy path (placeholder pointing to policy in resfit/my_lerobot_data)
-BASE_POLICY_PATH="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/bc_run_2026-08-23_21-14-35_robomimic_square_v15_50_diffusion/best_step_14000/policy"
+BASE_POLICY_PATH="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/bc_run_2026-08-23_21-14-35_robomimic_square_v15_50_diffusion/policy_step_66000/policy"
 E2C_DIR="/home/moai/ysl_ws/cover/lane/pretrained_e2c/square"
 OFFLINE_DATA_DIR="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/ysl2683/robomimic_square_v15_50"
 
@@ -35,7 +35,7 @@ while [[ "$#" -gt 0 ]]; do
         --seed) SEED="$2"; shift ;;
         --wandb_name) WANDB_NAME="$2"; shift ;;
         --freeze_e2c) FREEZE_E2C="$2"; shift ;;
-        --base_policy_path) BASE_POLICY_PATH="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/bc_run_2026-08-23_21-14-35_robomimic_square_v15_50_diffusion/best_step_14000/policy"
+        --base_policy_path) BASE_POLICY_PATH="$2"; shift ;;
         --e2c_dir) E2C_DIR="$2"; shift ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
     esac
