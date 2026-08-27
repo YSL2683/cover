@@ -924,7 +924,7 @@ def main(cfg: ResidualTD3DexmgConfig):
             alpha=getattr(cfg.algo, "reward_alpha", 0.98),
             w_m=getattr(cfg.algo, "reward_w_m", 0.3),
             w_w=getattr(cfg.algo, "reward_w_w", 0.7),
-            gamma=getattr(cfg.algo, "gamma", 0.99),
+            gamma=cfg.algo.gamma,
             e2c_mode=getattr(cfg.algo, "e2c_mode", "decoupled"),
             ref_horizon=getattr(cfg.algo, "ref_horizon", 30.0)
         )
