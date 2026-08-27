@@ -58,13 +58,13 @@ echo "=================================================="
 # Environment variables & Isolated Cache Directory for Multi-Task Concurrency
 export PYTHONUNBUFFERED=1
 export PYTHONPATH=/home/moai/ysl_ws/cover:$PYTHONPATH
-export CACHE_DIR=/home/moai/ysl_ws/cover/scratch/square_ablation_no_dense
 export HF_HUB_OFFLINE=1
 export LEROBOT_OFFLINE=1
+CURRENT_TIME=$(date +"%Y%m%d_%H%M%S")
+export CACHE_DIR=/home/moai/ysl_ws/cover/scratch/square_${CURRENT_TIME}
 
 # Clear isolated scratch memory buffers for this task only
 mkdir -p ${CACHE_DIR}
-rm -rf ${CACHE_DIR}/online ${CACHE_DIR}/offline ${CACHE_DIR}/online_buffer_cache ${CACHE_DIR}/offline_buffer_cache
 
 # Run training with task="SquareOOD" and wandb.project="square_residual_rl"
 python resfit/rl_finetuning/scripts/train_residual_td3.py \
