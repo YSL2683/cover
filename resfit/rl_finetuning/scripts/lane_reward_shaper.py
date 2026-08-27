@@ -1252,9 +1252,12 @@ class LaNERewardShaper:
             # 2. Compute Potential for s (current state) using 2squared kernel
             Phi_curr, S_main_curr, S_wrist_curr, min_dist_m_curr, min_dist_w_curr, rem_t_m_curr, rem_t_w_curr = self._compute_potential_2squared(batch["dino"])
             
-            # 3. PBRS Difference (using self.gamma)
+            # 3. PBRS Difference (using batch["gamma"] which is gamma^n)
             # Apply terminal masking: Phi(s_{terminal}) = 0
-            gamma_env = self.gamma
+            if "gamma" in batch.keys():
+                gamma_env = batch["gamma"].squeeze().detach().cpu().numpy()
+            else:
+                gamma_env = self.gamma
             nonterminal_mask = batch["nonterminal"].squeeze().detach().cpu().numpy()
             
             r_dense = (gamma_env * Phi_next * nonterminal_mask - Phi_curr) * self.p_reward
