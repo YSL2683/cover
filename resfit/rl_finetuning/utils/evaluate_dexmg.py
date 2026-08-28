@@ -404,11 +404,14 @@ def run_dexmg_evaluation(
         float(np.mean(successful_episode_lengths)) if successful_episode_lengths else 0.0
     )
 
-    metrics: dict[str, float] = {
+    metrics: dict = {
         "eval/success_rate": success_rate,
         "eval/mean_return": mean_return,
         "eval/mean_successful_episode_length": mean_successful_episode_length,
     }
+
+    if successful_episode_lengths:
+        metrics["eval/successful_episode_length_hist"] = wandb.Histogram(successful_episode_lengths)
 
     if wandb.run is not None:
         wandb.log(metrics, step=global_step)
