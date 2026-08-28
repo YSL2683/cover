@@ -1,6 +1,6 @@
 #!/bin/bash
 PROJECT_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)
-# Script to run Residual TD3 with Potential-Based Reward Shaping (PBRS) for SquareOOD
+# Script to run Residual TD3 with Potential-Based Reward Shaping (PBRS) for SquareID
 # Note: Uses task-isolated CACHE_DIR to support concurrent multi-task Residual RL training.
 
 # Default parameters
@@ -9,19 +9,20 @@ BETA=1.0
 ALPHA=0.98
 W_M=0.3
 W_W=0.7
-P_REWARD=100.0  # Scaling factor for PBRS difference magnitude
+P_REWARD=1.0  # Scaling factor for PBRS difference magnitude
 SEED=42
 FREEZE_E2C="True"
 TASK="Square"
+RES_ACTION_REG=0.0005  # Regularization for residual action magnitude
 
 # Base policy path (placeholder pointing to policy in resfit/my_lerobot_data)
-BASE_POLICY_PATH="${PROJECT_ROOT}/resfit/my_lerobot_data/bc_run_2026-08-23_21-14-35_robomimic_square_v15_50_diffusion/best_step_14000/policy"
+BASE_POLICY_PATH="${PROJECT_ROOT}/resfit/my_lerobot_data/bc_run_2026-08-23_21-14-35_robomimic_square_v15_50_diffusion/policy_step_66000/policy"
 E2C_DIR="${PROJECT_ROOT}/lane/pretrained_e2c/square"
 OFFLINE_DATA_DIR="${PROJECT_ROOT}/resfit/my_lerobot_data/ysl2683/robomimic_square_v15_50"
 
 # Name for Weights & Biases
 WANDB_PROJECT="square_residual_rl"
-WANDB_NAME="${REWARD_TYPE}_beta${BETA}_scale${P_REWARD}"
+WANDB_NAME="${TASK}_${REWARD_TYPE}_beta${BETA}_scale${P_REWARD}"
 
 # Parse command line arguments
 while [[ "$#" -gt 0 ]]; do
@@ -35,7 +36,7 @@ while [[ "$#" -gt 0 ]]; do
         --seed) SEED="$2"; shift ;;
         --wandb_name) WANDB_NAME="$2"; shift ;;
         --freeze_e2c) FREEZE_E2C="$2"; shift ;;
-        --base_policy_path) BASE_POLICY_PATH="${PROJECT_ROOT}/resfit/my_lerobot_data/bc_run_2026-08-23_21-14-35_robomimic_square_v15_50_diffusion/best_step_14000/policy"; shift ;;
+        --base_policy_path) BASE_POLICY_PATH="$2"; shift ;;
         --e2c_dir) E2C_DIR="$2"; shift ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
     esac
@@ -44,7 +45,7 @@ done
 
 echo "=================================================="
 echo "Starting Residual TD3 Training for Square with V-PBRS"
-echo "Target Task     : $TASK  (In-Distribution Position & Orientation)"
+echo "Target Task     : $TASK (In-Distribution Position & Orientation)"
 echo "Reward Type     : $REWARD_TYPE"
 echo "Reward Scale    : $P_REWARD"
 echo "Beta            : $BETA"
@@ -74,7 +75,7 @@ mkdir -p ${CACHE_DIR}
 python3.10 resfit/rl_finetuning/scripts/train_residual_td3.py \
     env_modifier.mode=none \
     env_modifier.disturbance=null \
-    task="SquareOOD" \
+    task="${TASK}" \
     rl_camera="['observation.images.agentview','observation.images.robot0_eye_in_hand']" \
     wandb.project="${WANDB_PROJECT}" \
     wandb.name="${WANDB_NAME}" \
@@ -85,6 +86,7 @@ python3.10 resfit/rl_finetuning/scripts/train_residual_td3.py \
     algo.reward_w_m="${W_M}" \
     algo.reward_w_w="${W_W}" \
     algo.p_reward="${P_REWARD}" \
+    agent.actor.action_l2_reg_weight="${RES_ACTION_REG}" \
     algo.freeze_e2c="${FREEZE_E2C}" \
     base_policy_path="${BASE_POLICY_PATH}" \
     e2c_dir="${E2C_DIR}" \
