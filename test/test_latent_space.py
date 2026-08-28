@@ -1,7 +1,7 @@
 import sys
 import os
 from pathlib import Path
-sys.path.append("/home/moai/ysl_ws/cover")
+sys.path.append(f"{PROJECT_ROOT}")
 
 import time
 import torch
@@ -19,6 +19,10 @@ from lane.e2c import MLPE2C
 from resfit.dexmg.environments.dexmg import create_vectorized_env
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 
+import os
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+
+
 def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
@@ -27,8 +31,8 @@ def main():
     e2c_main = MLPE2C(obs_shape=(384,), action_dim=7, z_dimension=16).to(device)
     e2c_wrist = MLPE2C(obs_shape=(384,), action_dim=7, z_dimension=16).to(device)
     
-    e2c_main.load_state_dict(torch.load("/home/moai/ysl_ws/cover/lane/pretrained_e2c/lift/e2c_front.pt", map_location=device))
-    e2c_wrist.load_state_dict(torch.load("/home/moai/ysl_ws/cover/lane/pretrained_e2c/lift/e2c_wrist.pt", map_location=device))
+    e2c_main.load_state_dict(torch.load(f"{PROJECT_ROOT}/lane/pretrained_e2c/lift/e2c_front.pt", map_location=device))
+    e2c_wrist.load_state_dict(torch.load(f"{PROJECT_ROOT}/lane/pretrained_e2c/lift/e2c_wrist.pt", map_location=device))
     e2c_main.eval()
     e2c_wrist.eval()
     
@@ -46,7 +50,7 @@ def main():
     # 3. Load Offline Dataset and Compute z_demo & ref_one_step_dist
     print("Precomputing z_demo from offline dataset...")
     dataset_name = "ysl2683/lane_lift_id_20_aligned"
-    dataset_path = f"/home/moai/ysl_ws/cover/resfit/my_lerobot_data/{dataset_name}"
+    dataset_path = f"{PROJECT_ROOT}/resfit/my_lerobot_data/{dataset_name}"
     dataset = LeRobotDataset(dataset_name, root=dataset_path)
     
     z_demo_main = []

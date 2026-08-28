@@ -11,9 +11,9 @@ git clone https://github.com/huggingface/lerobot.git "$DEPS_DIR/lerobot"
 git -C "$DEPS_DIR/lerobot" checkout 69901b9b6a2300914ca3de0ea14b6fa6e0203bd4
 
 # Install lerobot
-python -m pip install -e "$DEPS_DIR/lerobot" --no-deps
+python3.10 -m pip install -e "$DEPS_DIR/lerobot" --no-deps
 
 # Install a couple of dependencies
-python -m pip install -r resfit/lerobot/lerobot_requirements.txt
-python -m pip install --upgrade torch torchvision torchcodec
-python -m pip install datasets==3.6.0
+python3.10 -m pip install -r resfit/lerobot/lerobot_requirements.txt
+python3.10 -m pip install --upgrade torch torchvision torchcodec
+python3.10 -m pip install datasets==3.6.0

@@ -6,6 +6,10 @@ import imageio
 from pathlib import Path
 from tensordict import TensorDict
 
+import os
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
 def run_visualizations(env, agent, lane_shaper, cfg):
     print("Starting Dashboard and t-SNE Visualizations...")
     device = agent.device if hasattr(agent, "device") else torch.device("cuda")
@@ -19,7 +23,7 @@ def run_visualizations(env, agent, lane_shaper, cfg):
     
     print("Initializing E2C representations from pretrained weights...")
     if not lane_shaper.initialized:
-        e2c_dir = "/home/moai/ysl_ws/cover/lane/pretrained_e2c/lift"
+        e2c_dir = f"{PROJECT_ROOT}/lane/pretrained_e2c/lift"
         lane_shaper.e2c_main.load_state_dict(torch.load(f"{e2c_dir}/e2c_main.pt", map_location=device))
         lane_shaper.e2c_wrist.load_state_dict(torch.load(f"{e2c_dir}/e2c_wrist.pt", map_location=device))
         lane_shaper.e2c_main.eval()
@@ -202,7 +206,7 @@ def run_visualizations(env, agent, lane_shaper, cfg):
         frames.append(img)
         plt.close(fig)
         
-    out_dir = Path("/home/moai/ysl_ws/cover/resfit/my_lerobot_data/REWARD_2/outputs/REWARD_2")
+    out_dir = Path(f"{PROJECT_ROOT}/resfit/my_lerobot_data/REWARD_2/outputs/REWARD_2")
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "dashboard_analysis.mp4"
     print(f"Saving video to {out_path} ...")

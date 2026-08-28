@@ -7,9 +7,13 @@ import robosuite as suite
 from robosuite import load_controller_config
 import cv2
 
+import os
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
 def verify_rollout():
-    hdf5_path = "/home/moai/ysl_ws/cover/lane/demo/demo_v15.hdf5"
-    pt_dir = "/home/moai/ysl_ws/cover/lane/demo/robomimic_square/50"
+    hdf5_path = f"{PROJECT_ROOT}/lane/demo/demo_v15.hdf5"
+    pt_dir = f"{PROJECT_ROOT}/lane/demo/robomimic_square/50"
     
     # 1. Load .pt Actions
     pt_files = glob.glob(os.path.join(pt_dir, "*.pt"))

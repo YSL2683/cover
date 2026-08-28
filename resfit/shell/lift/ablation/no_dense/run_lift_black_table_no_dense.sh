@@ -1,4 +1,5 @@
 #!/bin/bash
+PROJECT_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../../.." && pwd)
 # Script to run Residual TD3 WITHOUT dense reward (ablation study)
 # Adapted for a 5x5cm spawn area and Black Table environment
 
@@ -32,13 +33,13 @@ echo "WandB Name      : $WANDB_NAME"
 echo "=================================================="
 
 # Clear scratch memory buffers
-rm -rf /home/moai/ysl_ws/cover/scratch/online_buffer_cache/* /home/moai/ysl_ws/cover/scratch/offline_buffer_cache/*
-rm -rf /home/moai/ysl_ws/cover/scratch/online/* /home/moai/ysl_ws/cover/scratch/offline/*
+rm -rf ${PROJECT_ROOT}/scratch/online_buffer_cache/* ${PROJECT_ROOT}/scratch/offline_buffer_cache/*
+rm -rf ${PROJECT_ROOT}/scratch/online/* ${PROJECT_ROOT}/scratch/offline/*
 
 # Environment variables
 export PYTHONUNBUFFERED=1
-export PYTHONPATH=/home/moai/ysl_ws/cover:$PYTHONPATH
-export CACHE_DIR=/home/moai/ysl_ws/cover/scratch
+export PYTHONPATH=${PROJECT_ROOT}:$PYTHONPATH
+export CACHE_DIR=${PROJECT_ROOT}/scratch
 export HF_HUB_OFFLINE=1
 export LEROBOT_OFFLINE=1
 

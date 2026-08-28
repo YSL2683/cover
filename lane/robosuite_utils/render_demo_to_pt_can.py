@@ -6,15 +6,19 @@ import robosuite as suite
 from robosuite import load_controller_config
 from tqdm import tqdm
 
+import os
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
 def main():
-    hdf5_path = "/home/moai/ysl_ws/cover/lane/demo/robomimic_dataset/can/demo_v15.hdf5"
+    hdf5_path = f"{PROJECT_ROOT}/lane/demo/robomimic_dataset/can/demo_v15.hdf5"
     
     # Target folder
     num_demos = 0
     with h5py.File(hdf5_path, "r") as f:
         num_demos = min(len(f["data"].keys()), 50)
         
-    target_folder = f"/home/moai/ysl_ws/cover/lane/demo/robomimic_can/{num_demos}"
+    target_folder = f"{PROJECT_ROOT}/lane/demo/robomimic_can/{num_demos}"
     if not os.path.isdir(target_folder):
         os.makedirs(target_folder)
 

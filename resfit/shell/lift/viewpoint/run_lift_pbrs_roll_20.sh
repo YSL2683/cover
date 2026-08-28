@@ -1,4 +1,5 @@
 #!/bin/bash
+PROJECT_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)
 # Script to run Residual TD3 with Potential-Based Reward Shaping (PBRS)
 # Environment: 5x5cm initialization with frontview camera shifted by +20cm in Y axis
 
@@ -12,7 +13,7 @@ P_REWARD=100.0  # Increased scaling factor for PBRS difference magnitude
 SEED=42
 FREEZE_E2C="True"
 BASE_POLICY_PATH="resfit/my_lerobot_data/bc_run_2026-07-30_16-20-35_lane_lift_id_20_aligned_diffusion/policy_step_5000/policy"
-E2C_DIR="/home/moai/ysl_ws/cover/lane/pretrained_e2c/lift"
+E2C_DIR="${PROJECT_ROOT}/lane/pretrained_e2c/lift"
 
 # Name for Weights & Biases
 WANDB_NAME="pbrs_viewpoint_roll_20_beta${BETA}_scale${P_REWARD}_freeze"
@@ -51,18 +52,18 @@ echo "Environment     : Viewpoint Rolled 20 deg (quat=[0.4549, 0.4989, 0.3493, 0
 echo "=================================================="
 
 # Clear scratch memory buffers
-rm -rf /home/moai/ysl_ws/cover/scratch/online_buffer_cache/* /home/moai/ysl_ws/cover/scratch/offline_buffer_cache/*
-rm -rf /home/moai/ysl_ws/cover/scratch/online/* /home/moai/ysl_ws/cover/scratch/offline/*
+rm -rf ${PROJECT_ROOT}/scratch/online_buffer_cache/* ${PROJECT_ROOT}/scratch/offline_buffer_cache/*
+rm -rf ${PROJECT_ROOT}/scratch/online/* ${PROJECT_ROOT}/scratch/offline/*
 
 # Environment variables
 export PYTHONUNBUFFERED=1
-export PYTHONPATH=/home/moai/ysl_ws/cover:$PYTHONPATH
-export CACHE_DIR=/home/moai/ysl_ws/cover/scratch
+export PYTHONPATH=${PROJECT_ROOT}:$PYTHONPATH
+export CACHE_DIR=${PROJECT_ROOT}/scratch
 export HF_HUB_OFFLINE=1
 export LEROBOT_OFFLINE=1
 
 # Ensure directory exists for script location
-mkdir -p /home/moai/ysl_ws/cover/resfit/shell/lift/viewpoint
+mkdir -p ${PROJECT_ROOT}/resfit/shell/lift/viewpoint
 
 # Run training
 python resfit/rl_finetuning/scripts/train_residual_td3.py \

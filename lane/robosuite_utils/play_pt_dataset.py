@@ -5,6 +5,10 @@ import numpy as np
 import cv2
 import sys
 
+import os
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
 def play_dataset(data_dir):
     pt_files = glob.glob(os.path.join(data_dir, "*.pt"))
     if not pt_files:
@@ -67,5 +71,5 @@ def play_dataset(data_dir):
     print("Playback finished.")
 
 if __name__ == "__main__":
-    target_dir = sys.argv[1] if len(sys.argv) > 1 else "/home/moai/ysl_ws/cover/lane/demo/robomimic_square/50"
+    target_dir = sys.argv[1] if len(sys.argv) > 1 else f"{PROJECT_ROOT}/lane/demo/robomimic_square/50"
     play_dataset(target_dir)

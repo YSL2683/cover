@@ -10,6 +10,10 @@ from hydra.core.config_store import ConfigStore
 
 from resfit.rl_finetuning.config.rlpd import ActorConfig, QAgentConfig, RLPDAlgoConfig, RLPDDexmgConfig
 
+import os
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
 
 @dataclass
 class OfflineDataConfig:
@@ -129,7 +133,7 @@ class ResidualTD3DexmgConfig(RLPDDexmgConfig):
     # ------------------------------------------------------------------
     # Pretrained E2C encoder directory (contains e2c_main.pt, e2c_wrist.pt)
     # ------------------------------------------------------------------
-    e2c_dir: str = "/home/moai/ysl_ws/cover/lane/pretrained_e2c/lift"
+    e2c_dir: str = f"{PROJECT_ROOT}/lane/pretrained_e2c/lift"
 
     # ------------------------------------------------------------------
     # Weights & Biases logging

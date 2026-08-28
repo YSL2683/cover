@@ -1,4 +1,5 @@
 #!/bin/bash
+PROJECT_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)
 # Script to run Residual TD3 with Potential-Based Reward Shaping (PBRS) for SquareOOD
 # Note: Uses task-isolated CACHE_DIR to support concurrent multi-task Residual RL training.
 
@@ -14,9 +15,9 @@ FREEZE_E2C="True"
 TASK="Square"
 
 # Base policy path (placeholder pointing to policy in resfit/my_lerobot_data)
-BASE_POLICY_PATH="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/bc_run_2026-08-23_21-14-35_robomimic_square_v15_50_diffusion/best_step_14000/policy"
-E2C_DIR="/home/moai/ysl_ws/cover/lane/pretrained_e2c/square"
-OFFLINE_DATA_DIR="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/ysl2683/lane_square_id_20"
+BASE_POLICY_PATH="${PROJECT_ROOT}/resfit/my_lerobot_data/bc_run_2026-08-23_21-14-35_robomimic_square_v15_50_diffusion/best_step_14000/policy"
+E2C_DIR="${PROJECT_ROOT}/lane/pretrained_e2c/square"
+OFFLINE_DATA_DIR="${PROJECT_ROOT}/resfit/my_lerobot_data/ysl2683/robomimic_square_v15_50"
 
 # Name for Weights & Biases
 WANDB_PROJECT="square_residual_rl"
@@ -34,7 +35,7 @@ while [[ "$#" -gt 0 ]]; do
         --seed) SEED="$2"; shift ;;
         --wandb_name) WANDB_NAME="$2"; shift ;;
         --freeze_e2c) FREEZE_E2C="$2"; shift ;;
-        --base_policy_path) BASE_POLICY_PATH="/home/moai/ysl_ws/cover/resfit/my_lerobot_data/bc_run_2026-08-23_21-14-35_robomimic_square_v15_50_diffusion/best_step_14000/policy"
+        --base_policy_path) BASE_POLICY_PATH="${PROJECT_ROOT}/resfit/my_lerobot_data/bc_run_2026-08-23_21-14-35_robomimic_square_v15_50_diffusion/best_step_14000/policy"; shift ;;
         --e2c_dir) E2C_DIR="$2"; shift ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
     esac
@@ -60,17 +61,17 @@ echo "=================================================="
 
 # Environment variables & Isolated Cache Directory for Multi-Task Concurrency
 export PYTHONUNBUFFERED=1
-export PYTHONPATH=/home/moai/ysl_ws/cover:$PYTHONPATH
+export PYTHONPATH=${PROJECT_ROOT}:$PYTHONPATH
 export HF_HUB_OFFLINE=1
 export LEROBOT_OFFLINE=1
 CURRENT_TIME=$(date +"%Y%m%d_%H%M%S")
-export CACHE_DIR=/home/moai/ysl_ws/cover/scratch/square_${CURRENT_TIME}
+export CACHE_DIR=${PROJECT_ROOT}/scratch/square_${CURRENT_TIME}
 
 # Clear isolated scratch memory buffers for this task only
 mkdir -p ${CACHE_DIR}
 
 # Run training with task="SquareOOD" and wandb.project="square_residual_rl"
-python resfit/rl_finetuning/scripts/train_residual_td3.py \
+python3.10 resfit/rl_finetuning/scripts/train_residual_td3.py \
     env_modifier.mode=none \
     env_modifier.disturbance=null \
     task="SquareOOD" \
