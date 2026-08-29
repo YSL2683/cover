@@ -1,10 +1,10 @@
-import torchvision.transforms.functional as TF
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.  
 
 # SPDX-License-Identifier: CC-BY-NC-4.0
 
 from __future__ import annotations
 
+import torchvision.transforms.functional as TF
 import copy
 from contextlib import contextmanager
 
