@@ -76,8 +76,8 @@ class LaNERewardShaper:
     def dino_embed(self, obs):
         with torch.no_grad():
             image1, image2 = torch.split(obs, [3, 3], dim=1)
-            image1 = F.interpolate(image1, size=(224, 224), mode="bilinear", align_corners=False)
-            image2 = F.interpolate(image2, size=(224, 224), mode="bilinear", align_corners=False)
+            image1 = TF.center_crop(image1, output_size=112)
+            image2 = TF.center_crop(image2, output_size=112)
             image1 = TF.normalize(image1, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
             image2 = TF.normalize(image2, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
             dino_emb1 = self.dino(image1)

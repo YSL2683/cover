@@ -6,6 +6,7 @@ export PYTHONPATH=${PROJECT_ROOT}
 python resfit/lerobot/scripts/train_bc_dexmg.py \
     --dataset ysl2683/robomimic_square_v15_50 \
     --policy diffusion \
+    --policy_kwargs '{"crop_shape": [112, 112]}' \
     --steps 100000 \
     --batch_size 256 \
     --rollout_freq 2000 \

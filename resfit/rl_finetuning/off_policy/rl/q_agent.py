@@ -1,3 +1,4 @@
+import torchvision.transforms.functional as TF
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.  
 
 # SPDX-License-Identifier: CC-BY-NC-4.0
@@ -227,6 +228,7 @@ class QAgent(nn.Module):
             else:
                 data = data.float()
 
+            data = TF.center_crop(data, 112)
             if augment:
                 data = self.aug(data)
 
