@@ -4,7 +4,7 @@ PROJECT_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)
 # Note: Uses task-isolated CACHE_DIR to support concurrent multi-task Residual RL training.
 
 # Default parameters
-REWARD_TYPE="reward_pbrs_nstep"
+REWARD_TYPE="reward_pbrs"
 BETA=1.0
 ALPHA=1.0
 W_M=0.3
@@ -72,7 +72,7 @@ export CACHE_DIR=${PROJECT_ROOT}/scratch/square_${CURRENT_TIME}
 mkdir -p ${CACHE_DIR}
 
 # Run training with task="SquareOOD" and wandb.project="square_residual_rl"
-python resfit/rl_finetuning/scripts/train_residual_td3.py \
+python3.10 resfit/rl_finetuning/scripts/train_residual_td3.py \
     env_modifier.mode=none \
     env_modifier.disturbance=null \
     task="${TASK}" \
