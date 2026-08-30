@@ -365,9 +365,12 @@ class LaNERewardShaper:
         S_main = torch.exp(-gamma_m * (min_dist_m ** 2))
         S_wrist = torch.exp(-gamma_w * (min_dist_w ** 2))
         
-        Phi = self.w_m * S_main + self.w_w * S_wrist
+        rem_t_m_norm = self.ref_horizon * rem_t_m
+        rem_t_w_norm = self.ref_horizon * rem_t_w
         
-        return Phi.cpu().numpy(), S_main.cpu().numpy(), S_wrist.cpu().numpy(), min_dist_m.cpu().numpy(), min_dist_w.cpu().numpy(), rem_t_m.cpu().numpy(), rem_t_w.cpu().numpy()
+        Phi = self.w_m * S_main * (self.alpha ** rem_t_m_norm) + self.w_w * S_wrist * (self.alpha ** rem_t_w_norm)
+        
+        return Phi.cpu().numpy(), S_main.cpu().numpy(), S_wrist.cpu().numpy(), min_dist_m.cpu().numpy(), min_dist_w.cpu().numpy(), rem_t_m_norm.cpu().numpy(), rem_t_w_norm.cpu().numpy()
     def _compute_potential_sync(self, dino_tensor):
         """Computes the visual potential function Phi(s) using the Max-Similarity timestep synchronization."""
         dino_m, dino_w = dino_tensor[:, :384], dino_tensor[:, 384:]
@@ -542,9 +545,12 @@ class LaNERewardShaper:
         S_main = torch.exp(-gamma_m * min_dist_m)
         S_wrist = torch.exp(-gamma_w * min_dist_w)
         
-        Phi = self.w_m * S_main + self.w_w * S_wrist
+        rem_t_m_norm = self.ref_horizon * rem_t_m
+        rem_t_w_norm = self.ref_horizon * rem_t_w
         
-        return Phi.cpu().numpy(), S_main.cpu().numpy(), S_wrist.cpu().numpy(), min_dist_m.cpu().numpy(), min_dist_w.cpu().numpy(), rem_t_m.cpu().numpy(), rem_t_w.cpu().numpy()
+        Phi = self.w_m * S_main * (self.alpha ** rem_t_m_norm) + self.w_w * S_wrist * (self.alpha ** rem_t_w_norm)
+        
+        return Phi.cpu().numpy(), S_main.cpu().numpy(), S_wrist.cpu().numpy(), min_dist_m.cpu().numpy(), min_dist_w.cpu().numpy(), rem_t_m_norm.cpu().numpy(), rem_t_w_norm.cpu().numpy()
     def shape_reward(self, batch, step):
         if self.p_reward == 0 or self.reward_type.lower() == "none":
             return {}
