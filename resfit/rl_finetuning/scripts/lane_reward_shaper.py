@@ -539,8 +539,8 @@ class LaNERewardShaper:
         min_dist_w, min_idx_w = dist_w.min(dim=1)
         rem_t_w = self.flat_rem_t_w[min_idx_w]
         
-        gamma_m = self.beta / ((self.ref_one_step_dist_main ** 2) + 1e-8)
-        gamma_w = self.beta / ((self.ref_one_step_dist_wrist ** 2) + 1e-8)
+        gamma_m = self.beta / (self.ref_one_step_dist_main + 1e-8)
+        gamma_w = self.beta / (self.ref_one_step_dist_wrist + 1e-8)
         
         S_main = torch.exp(-gamma_m * min_dist_m)
         S_wrist = torch.exp(-gamma_w * min_dist_w)
