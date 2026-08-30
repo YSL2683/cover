@@ -262,36 +262,61 @@ class LaNERewardShaper:
         one_step_dist_list_wrist = []
         one_step_dist_list_unified = []
         
+        flat_z_m_list = []
+        flat_rem_t_m_list = []
+        flat_z_w_list = []
+        flat_rem_t_w_list = []
+        flat_z_u_list = []
+        flat_rem_t_u_list = []
+        
         for i, (start, end) in enumerate(zip(self.demo_starts, self.demo_ends)):
             batch = self.offline_rb[start:end+1].to(self.device)
             dino_next_obs = batch["next", "dino"]
             
             if self.e2c_mode == "unified":
-                z_u = self.e2c_unified.enc(dino_next_obs)[0].unsqueeze(0).detach().cpu().numpy()
-                self.z_demo_unified_cache[i] = z_u
+                z_u = self.e2c_unified.enc(dino_next_obs)[0].detach() # [T, latent_dim]
+                self.z_demo_unified_cache[i] = z_u.unsqueeze(0).cpu().numpy() # keep old cache for safety
                 
-                if z_u.shape[1] > 1:
-                    one_step_dist_list_unified.append(((z_u[0, 1:] - z_u[0, :-1]) ** 2).sum(axis=1).mean())
+                T = z_u.shape[0]
+                rem_t = (T - torch.arange(T, device=self.device)) / T
+                flat_z_u_list.append(z_u)
+                flat_rem_t_u_list.append(rem_t)
+                
+                if T > 1:
+                    one_step_dist_list_unified.append(((z_u[1:] - z_u[:-1]) ** 2).sum(axis=1).mean().item())
             else:
                 dino_f, dino_w = dino_next_obs[:, :384], dino_next_obs[:, 384:]
                 
-                z_m = self.e2c_main.enc(dino_f)[0].unsqueeze(0).detach().cpu().numpy()
-                z_w = self.e2c_wrist.enc(dino_w)[0].unsqueeze(0).detach().cpu().numpy()
+                z_m = self.e2c_main.enc(dino_f)[0].detach() # [T, latent_dim]
+                z_w = self.e2c_wrist.enc(dino_w)[0].detach() # [T, latent_dim]
                 
-                self.z_demo_main_cache[i] = z_m
-                self.z_demo_wrist_cache[i] = z_w
+                self.z_demo_main_cache[i] = z_m.unsqueeze(0).cpu().numpy()
+                self.z_demo_wrist_cache[i] = z_w.unsqueeze(0).cpu().numpy()
                 
-                if z_m.shape[1] > 1:
-                    one_step_dist_list_main.append(((z_m[0, 1:] - z_m[0, :-1]) ** 2).sum(axis=1).mean())
-                    one_step_dist_list_wrist.append(((z_w[0, 1:] - z_w[0, :-1]) ** 2).sum(axis=1).mean())
+                T = z_m.shape[0]
+                rem_t = (T - torch.arange(T, device=self.device, dtype=torch.float32)) / T
+                flat_z_m_list.append(z_m)
+                flat_z_w_list.append(z_w)
+                flat_rem_t_m_list.append(rem_t)
+                flat_rem_t_w_list.append(rem_t)
                 
+                if T > 1:
+                    one_step_dist_list_main.append(((z_m[1:] - z_m[:-1]) ** 2).sum(dim=1).mean().item())
+                    one_step_dist_list_wrist.append(((z_w[1:] - z_w[:-1]) ** 2).sum(dim=1).mean().item())
+        
         if self.e2c_mode == "unified":
-            self.ref_one_step_dist_unified = np.mean(one_step_dist_list_unified)
+            self.ref_one_step_dist_unified = sum(one_step_dist_list_unified) / len(one_step_dist_list_unified)
+            self.flat_z_u = torch.cat(flat_z_u_list, dim=0)
+            self.flat_rem_t_u = torch.cat(flat_rem_t_u_list, dim=0)
         else:
-            self.ref_one_step_dist_main = np.mean(one_step_dist_list_main)
-            self.ref_one_step_dist_wrist = np.mean(one_step_dist_list_wrist)
+            self.ref_one_step_dist_main = sum(one_step_dist_list_main) / len(one_step_dist_list_main)
+            self.ref_one_step_dist_wrist = sum(one_step_dist_list_wrist) / len(one_step_dist_list_wrist)
+            self.flat_z_m = torch.cat(flat_z_m_list, dim=0)
+            self.flat_z_w = torch.cat(flat_z_w_list, dim=0)
+            self.flat_rem_t_m = torch.cat(flat_rem_t_m_list, dim=0)
+            self.flat_rem_t_w = torch.cat(flat_rem_t_w_list, dim=0)
+            
         self.initialized = True
-
     def _compute_potential_unified(self, dino_tensor):
         z_pred_u = self.e2c_unified.enc(dino_tensor)[0].unsqueeze(1).detach().cpu().numpy()
         
@@ -323,48 +348,26 @@ class LaNERewardShaper:
         """Computes the visual potential function Phi(s) for a batch of DINO embeddings."""
         dino_m, dino_w = dino_tensor[:, :384], dino_tensor[:, 384:]
         
-        z_pred_m = self.e2c_main.enc(dino_m)[0].unsqueeze(1).detach().cpu().numpy()
-        z_pred_w = self.e2c_wrist.enc(dino_w)[0].unsqueeze(1).detach().cpu().numpy()
+        z_pred_m = self.e2c_main.enc(dino_m)[0].detach()
+        z_pred_w = self.e2c_wrist.enc(dino_w)[0].detach()
         
-        N = len(dino_tensor)
-        min_dist_m = np.ones(N) * 10000
-        min_dist_w = np.ones(N) * 10000
-        idx_m_best = np.zeros(N)
-        idx_w_best = np.zeros(N)
-        T_demos_m = np.zeros(N)
-        T_demos_w = np.zeros(N)
+        dist_m = torch.cdist(z_pred_m, self.flat_z_m, p=2.0) ** 2
+        min_dist_m, min_idx_m = dist_m.min(dim=1)
+        rem_t_m = self.flat_rem_t_m[min_idx_m]
         
-        for i in range(len(self.demo_starts)):
-            z_demo_m = self.z_demo_main_cache[i]
-            z_dist_m = ((z_demo_m - z_pred_m) ** 2).sum(axis=2)
-            z_dist_min_m = z_dist_m.min(axis=1)
-            update_min_m = z_dist_min_m < min_dist_m
-            min_dist_m[update_min_m] = z_dist_min_m[update_min_m]
-            idx_m_best[update_min_m] = z_dist_m.argmin(axis=1)[update_min_m]
-            T_demos_m[update_min_m] = z_dist_m.shape[1]
-            
-            z_demo_w = self.z_demo_wrist_cache[i]
-            z_dist_w = ((z_demo_w - z_pred_w) ** 2).sum(axis=2)
-            z_dist_min_w = z_dist_w.min(axis=1)
-            update_min_w = z_dist_min_w < min_dist_w
-            min_dist_w[update_min_w] = z_dist_min_w[update_min_w]
-            idx_w_best[update_min_w] = z_dist_w.argmin(axis=1)[update_min_w]
-            T_demos_w[update_min_w] = z_dist_w.shape[1]
-            
+        dist_w = torch.cdist(z_pred_w, self.flat_z_w, p=2.0) ** 2
+        min_dist_w, min_idx_w = dist_w.min(dim=1)
+        rem_t_w = self.flat_rem_t_w[min_idx_w]
+        
         gamma_m = self.beta / ((self.ref_one_step_dist_main ** 2) + 1e-8)
         gamma_w = self.beta / ((self.ref_one_step_dist_wrist ** 2) + 1e-8)
         
-        # 4th power kernel: exp(-gamma * d^4)  (min_dist is already squared -> square again)
-        S_main = np.exp(-gamma_m * (min_dist_m ** 2))
-        S_wrist = np.exp(-gamma_w * (min_dist_w ** 2))
+        S_main = torch.exp(-gamma_m * (min_dist_m ** 2))
+        S_wrist = torch.exp(-gamma_w * (min_dist_w ** 2))
         
-        rem_t_m_norm = self.ref_horizon * (T_demos_m - idx_m_best) / np.maximum(T_demos_m, 1)
-        rem_t_w_norm = self.ref_horizon * (T_demos_w - idx_w_best) / np.maximum(T_demos_w, 1)
+        Phi = self.w_m * S_main + self.w_w * S_wrist
         
-        Phi = (self.w_m * np.power(self.alpha, rem_t_m_norm) * S_main) + (self.w_w * np.power(self.alpha, rem_t_w_norm) * S_wrist)
-        
-        return Phi, S_main, S_wrist, min_dist_m, min_dist_w, rem_t_m_norm, rem_t_w_norm
-
+        return Phi.cpu().numpy(), S_main.cpu().numpy(), S_wrist.cpu().numpy(), min_dist_m.cpu().numpy(), min_dist_w.cpu().numpy(), rem_t_m.cpu().numpy(), rem_t_w.cpu().numpy()
     def _compute_potential_sync(self, dino_tensor):
         """Computes the visual potential function Phi(s) using the Max-Similarity timestep synchronization."""
         dino_m, dino_w = dino_tensor[:, :384], dino_tensor[:, 384:]
@@ -518,56 +521,30 @@ class LaNERewardShaper:
         return Phi, S_main, S_wrist, min_dist_m, min_dist_w, rem_t_m_norm, rem_t_w_norm, rem_t_max_norm
 
     def _compute_potential_2squared(self, dino_tensor):
-        """Computes visual potential Phi(s) using a 2nd-power (squared-distance) RBF kernel.
-        
-        Unlike _compute_potential which uses exp(-gamma * d^4),
-        this uses exp(-gamma * d^2) where d^2 is the squared L2 distance in latent space.
-        This gives a wider, smoother similarity field.
-        """
+        """Computes visual potential Phi(s) using a 2nd-power (squared-distance) RBF kernel."""
         dino_m, dino_w = dino_tensor[:, :384], dino_tensor[:, 384:]
         
-        z_pred_m = self.e2c_main.enc(dino_m)[0].unsqueeze(1).detach().cpu().numpy()
-        z_pred_w = self.e2c_wrist.enc(dino_w)[0].unsqueeze(1).detach().cpu().numpy()
+        z_pred_m = self.e2c_main.enc(dino_m)[0].detach() # [N, latent_dim]
+        z_pred_w = self.e2c_wrist.enc(dino_w)[0].detach()
         
-        N = len(dino_tensor)
-        min_dist_m = np.ones(N) * 10000
-        min_dist_w = np.ones(N) * 10000
-        idx_m_best = np.zeros(N)
-        idx_w_best = np.zeros(N)
-        T_demos_m = np.zeros(N)
-        T_demos_w = np.zeros(N)
+        # cdist computes euclidean distance, we want squared euclidean distance
+        dist_m = torch.cdist(z_pred_m, self.flat_z_m, p=2.0) ** 2 # [N, total_frames]
+        min_dist_m, min_idx_m = dist_m.min(dim=1) # [N]
+        rem_t_m = self.flat_rem_t_m[min_idx_m] # [N]
         
-        for i in range(len(self.demo_starts)):
-            z_demo_m = self.z_demo_main_cache[i]
-            z_dist_m = ((z_demo_m - z_pred_m) ** 2).sum(axis=2)
-            z_dist_min_m = z_dist_m.min(axis=1)
-            update_min_m = z_dist_min_m < min_dist_m
-            min_dist_m[update_min_m] = z_dist_min_m[update_min_m]
-            idx_m_best[update_min_m] = z_dist_m.argmin(axis=1)[update_min_m]
-            T_demos_m[update_min_m] = z_dist_m.shape[1]
-            
-            z_demo_w = self.z_demo_wrist_cache[i]
-            z_dist_w = ((z_demo_w - z_pred_w) ** 2).sum(axis=2)
-            z_dist_min_w = z_dist_w.min(axis=1)
-            update_min_w = z_dist_min_w < min_dist_w
-            min_dist_w[update_min_w] = z_dist_min_w[update_min_w]
-            idx_w_best[update_min_w] = z_dist_w.argmin(axis=1)[update_min_w]
-            T_demos_w[update_min_w] = z_dist_w.shape[1]
-            
-        gamma_m = self.beta / (self.ref_one_step_dist_main + 1e-8)
-        gamma_w = self.beta / (self.ref_one_step_dist_wrist + 1e-8)
+        dist_w = torch.cdist(z_pred_w, self.flat_z_w, p=2.0) ** 2
+        min_dist_w, min_idx_w = dist_w.min(dim=1)
+        rem_t_w = self.flat_rem_t_w[min_idx_w]
         
-        # 2nd power kernel: exp(-gamma * d^2)  (use min_dist directly, not squared again)
-        S_main = np.exp(-gamma_m * min_dist_m)
-        S_wrist = np.exp(-gamma_w * min_dist_w)
+        gamma_m = self.beta / ((self.ref_one_step_dist_main ** 2) + 1e-8)
+        gamma_w = self.beta / ((self.ref_one_step_dist_wrist ** 2) + 1e-8)
         
-        rem_t_m_norm = self.ref_horizon * (T_demos_m - idx_m_best) / np.maximum(T_demos_m, 1)
-        rem_t_w_norm = self.ref_horizon * (T_demos_w - idx_w_best) / np.maximum(T_demos_w, 1)
+        S_main = torch.exp(-gamma_m * min_dist_m)
+        S_wrist = torch.exp(-gamma_w * min_dist_w)
         
-        Phi = (self.w_m * np.power(self.alpha, rem_t_m_norm) * S_main) + (self.w_w * np.power(self.alpha, rem_t_w_norm) * S_wrist)
+        Phi = self.w_m * S_main + self.w_w * S_wrist
         
-        return Phi, S_main, S_wrist, min_dist_m, min_dist_w, rem_t_m_norm, rem_t_w_norm
-
+        return Phi.cpu().numpy(), S_main.cpu().numpy(), S_wrist.cpu().numpy(), min_dist_m.cpu().numpy(), min_dist_w.cpu().numpy(), rem_t_m.cpu().numpy(), rem_t_w.cpu().numpy()
     def shape_reward(self, batch, step):
         if self.p_reward == 0 or self.reward_type.lower() == "none":
             return {}
