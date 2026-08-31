@@ -1,19 +1,19 @@
 #!/bin/bash
 PROJECT_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)
 # Script to run Residual TD3 with Potential-Based Reward Shaping (PBRS) for SquareID
-# Note: Uses task-isolated CACHE_DIR to support concurrent multi-task Residual RL training.
 
 # Default parameters
 REWARD_TYPE="reward_pbrs"
 BETA=1.0
 ALPHA=0.98
-W_M=0.5
-W_W=0.5
+W_M=0.3
+W_W=0.7
 P_REWARD=1.0  # Scaling factor for PBRS difference magnitude
 SEED=42
 FREEZE_E2C="True"
 TASK="Square"
 RES_ACTION_REG=0.0005  # Regularization for residual action magnitude
+N_STEP=1
 
 # Base policy path (placeholder pointing to policy in resfit/my_lerobot_data)
 BASE_POLICY_PATH="${PROJECT_ROOT}/resfit/my_lerobot_data/bc_run_2026-08-29_14-38-11_robomimic_square_v15_50_diffusion/policy_step_66000/policy"
@@ -22,7 +22,7 @@ OFFLINE_DATA_DIR="${PROJECT_ROOT}/resfit/my_lerobot_data/ysl2683/robomimic_squar
 
 # Name for Weights & Biases
 WANDB_PROJECT="square_residual_rl"
-WANDB_NAME="${TASK}_${REWARD_TYPE}_beta${BETA}_scale${P_REWARD}_wm${W_M}_ww${W_W}"
+WANDB_NAME="${TASK}_${REWARD_TYPE}_beta${BETA}_scale${P_REWARD}_nstep${N_STEP}"
 
 # Parse command line arguments
 while [[ "$#" -gt 0 ]]; do
@@ -38,6 +38,7 @@ while [[ "$#" -gt 0 ]]; do
         --freeze_e2c) FREEZE_E2C="$2"; shift ;;
         --base_policy_path) BASE_POLICY_PATH="$2"; shift ;;
         --e2c_dir) E2C_DIR="$2"; shift ;;
+        --n_step) N_STEP="$2"; shift ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
     esac
     shift
@@ -53,6 +54,7 @@ echo "Alpha           : $ALPHA"
 echo "Main Weight     : $W_M"
 echo "Wrist Weight    : $W_W"
 echo "Seed            : $SEED"
+echo "N-Step          : $N_STEP"
 echo "Freeze E2C      : $FREEZE_E2C"
 echo "WandB Project   : $WANDB_PROJECT"
 echo "WandB Name      : $WANDB_NAME"
@@ -80,6 +82,7 @@ python3.10 resfit/rl_finetuning/scripts/train_residual_td3.py \
     wandb.project="${WANDB_PROJECT}" \
     wandb.name="${WANDB_NAME}" \
     seed="${SEED}" \
+    algo.n_step="${N_STEP}" \
     algo.reward_type="${REWARD_TYPE}" \
     algo.reward_beta="${BETA}" \
     algo.reward_alpha="${ALPHA}" \
