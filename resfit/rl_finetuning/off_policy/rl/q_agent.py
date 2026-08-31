@@ -228,7 +228,7 @@ class QAgent(nn.Module):
             else:
                 data = data.float()
 
-            data = TF.center_crop(data, 112)
+            data = TF.resize(data, [84, 84], antialias=True)
             if augment:
                 data = self.aug(data)
 

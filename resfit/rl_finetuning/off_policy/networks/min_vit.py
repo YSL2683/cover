@@ -35,7 +35,7 @@ class PatchEmbed2(nn.Module):
         self.embed = nn.Sequential(*layers)
 
         # self.num_patch = 121  # if input image is 96x96, then num_patch = 121
-        self.num_patch = 169  # for 112x112 crop
+        self.num_patch = 81  # if input image is 84x84, then num_patch = 81
         self.patch_dim = embed_dim
 
     def forward(self, x: torch.Tensor):
