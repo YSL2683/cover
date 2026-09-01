@@ -351,11 +351,12 @@ class LaNERewardShaper:
         z_pred_m = self.e2c_main.enc(dino_m)[0].detach()
         z_pred_w = self.e2c_wrist.enc(dino_w)[0].detach()
         
-        dist_m = torch.cdist(z_pred_m, self.flat_z_m, p=2.0) ** 2
+        # Calculate explicit squared Euclidean distance to avoid torch.cdist precision issues (e.g. catastrophic cancellation)
+        dist_m = torch.sum((z_pred_m.unsqueeze(1) - self.flat_z_m.unsqueeze(0)) ** 2, dim=2)
         min_dist_m, min_idx_m = dist_m.min(dim=1)
         rem_t_m = self.flat_rem_t_m[min_idx_m]
         
-        dist_w = torch.cdist(z_pred_w, self.flat_z_w, p=2.0) ** 2
+        dist_w = torch.sum((z_pred_w.unsqueeze(1) - self.flat_z_w.unsqueeze(0)) ** 2, dim=2)
         min_dist_w, min_idx_w = dist_w.min(dim=1)
         rem_t_w = self.flat_rem_t_w[min_idx_w]
         
