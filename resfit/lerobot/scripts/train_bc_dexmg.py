@@ -275,6 +275,7 @@ def _run_rollouts(
     step: int,
     num_episodes: int,
     run_start_time: str,
+    seed: int | None = None,
 ):
     """Run *num_episodes* episodes with *policy* in vectorized *env* and compute success-rate.
 
@@ -316,7 +317,7 @@ def _run_rollouts(
 
     video_writer = imageio.get_writer(video_path.as_posix(), fps=20)
 
-    obs, _ = env.reset()
+    obs, _ = env.reset(seed=seed)
     episode_frames = [[] for _ in range(num_parallel_envs)]
     episode_steps = [0] * num_parallel_envs
 
@@ -843,6 +844,7 @@ def main(cfg: argparse.Namespace):
                 step=step,
                 num_episodes=cfg.eval_num_episodes,
                 run_start_time=run_start_time,
+                seed=cfg.seed,
             )
 
             rollout_ms = (time.perf_counter() - rollout_t0) * 1000

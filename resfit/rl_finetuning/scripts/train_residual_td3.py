@@ -230,7 +230,7 @@ def main(cfg: ResidualTD3DexmgConfig):
 
     # Enable performance optimizations
     if device.type == "cuda":
-        torch.backends.cudnn.benchmark = True
+        torch.backends.cudnn.benchmark = False  # Unconditionally False for RL reproducibility
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.backends.cudnn.allow_tf32 = True
 
@@ -449,12 +449,12 @@ def main(cfg: ResidualTD3DexmgConfig):
     if cfg.algo.offline_fraction == 0.0:
         print("Online-only training mode: offline_fraction=0.0")
 
-    # Use TensorDictPrioritizedReplayBuffer with optimized prefetching
+
     online_rb = TensorDictReplayBuffer(
         storage=LazyMemmapStorage(max_size=cfg.algo.buffer_size, scratch_dir=_CACHE_ROOT / "online"),
         transform=MultiStepTransform(n_steps=cfg.algo.n_step, gamma=cfg.algo.gamma),
         pin_memory=True,
-        prefetch=cfg.algo.prefetch_batches,  # Add prefetching
+        prefetch=0,  # Disable prefetching unconditionally for RL reproducibility
         batch_size=online_batch_size,
     )
 
@@ -543,11 +543,12 @@ def main(cfg: ResidualTD3DexmgConfig):
     else:
         print("Online-only mode: creating minimal offline buffer (unused)")
 
+
     offline_rb = TensorDictReplayBuffer(
         storage=LazyMemmapStorage(max_size=max_offline_transitions, scratch_dir=_CACHE_ROOT / "offline"),
         transform=MultiStepTransform(n_steps=cfg.algo.n_step, gamma=cfg.algo.gamma),
         pin_memory=True,
-        prefetch=cfg.algo.prefetch_batches,  # Add prefetching
+        prefetch=0,  # Disable prefetching unconditionally for RL reproducibility
         batch_size=max(offline_batch_size, 1),  # Ensure batch_size is at least 1
     )
 

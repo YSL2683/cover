@@ -17,4 +17,5 @@ python resfit/lerobot/scripts/train_bc_dexmg.py \
     --eval_num_episodes 100 \
     --eval_num_envs 16 \
     --num_workers 8 \
+    --seed 42 \
     --wandb_enable --wandb_project train_diffusion_square
