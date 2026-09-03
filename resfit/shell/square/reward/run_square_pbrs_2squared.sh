@@ -91,4 +91,5 @@ python3.10 resfit/rl_finetuning/scripts/train_residual_td3.py \
     base_policy_path="${BASE_POLICY_PATH}" \
     e2c_dir="${E2C_DIR}" \
     offline_data.name="${OFFLINE_DATA_DIR}" \
-    eval_interval_every_steps=2000
+    eval_interval_every_steps=2000 \
+    torch_deterministic=true
