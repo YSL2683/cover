@@ -1,19 +1,19 @@
 #!/bin/bash
 PROJECT_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)
-# Script to run Residual TD3 with Potential-Based Reward Shaping (PBRS) for SquareID
+# Script to run Residual TD3 with Potential-Based Reward Shaping WITHOUT Terminal Masking
 # Note: Uses task-isolated CACHE_DIR to support concurrent multi-task Residual RL training.
 
 # Default parameters
-REWARD_TYPE="reward_pbrs"
+REWARD_TYPE="reward_pbrs_no_mask"
 BETA=1.0
 ALPHA=0.98
 W_M=0.5
 W_W=0.5
-P_REWARD=1.0  # Scaling factor for PBRS difference magnitude
+P_REWARD=0.1  # Scaling factor for PBRS difference magnitude (Reduced for signal-to-noise ratio)
 SEED=42
 FREEZE_E2C="True"
 TASK="Square"
-RES_ACTION_REG=0.0005  # Regularization for residual action magnitude
+RES_ACTION_REG=0.00005  # Regularization for residual action magnitude
 
 # Base policy path (placeholder pointing to policy in resfit/my_lerobot_data)
 BASE_POLICY_PATH="${PROJECT_ROOT}/resfit/my_lerobot_data/bc_run_2026-08-29_14-38-11_robomimic_square_v15_50_diffusion/policy_step_66000/policy"
@@ -22,7 +22,7 @@ OFFLINE_DATA_DIR="${PROJECT_ROOT}/resfit/my_lerobot_data/ysl2683/robomimic_squar
 
 # Name for Weights & Biases
 WANDB_PROJECT="square_residual_rl"
-WANDB_NAME="${TASK}_${REWARD_TYPE}_beta${BETA}_scale${P_REWARD}_wm${W_M}_ww${W_W}"
+WANDB_NAME="${TASK}_${REWARD_TYPE}_beta${BETA}_scale${P_REWARD}_w0.5"
 
 # Parse command line arguments
 while [[ "$#" -gt 0 ]]; do
@@ -44,7 +44,7 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 echo "=================================================="
-echo "Starting Residual TD3 Training for Square with V-PBRS"
+echo "Starting Residual TD3 Training for Square with V-PBRS (No Terminal Masking)"
 echo "Target Task     : $TASK (In-Distribution Position & Orientation)"
 echo "Reward Type     : $REWARD_TYPE"
 echo "Reward Scale    : $P_REWARD"
@@ -65,6 +65,7 @@ export PYTHONUNBUFFERED=1
 export PYTHONPATH=${PROJECT_ROOT}:$PYTHONPATH
 export HF_HUB_OFFLINE=1
 export LEROBOT_OFFLINE=1
+export PYTHONHASHSEED=0
 CURRENT_TIME=$(date +"%Y%m%d_%H%M%S")
 export CACHE_DIR=${PROJECT_ROOT}/scratch/square_${CURRENT_TIME}
 
@@ -72,7 +73,7 @@ export CACHE_DIR=${PROJECT_ROOT}/scratch/square_${CURRENT_TIME}
 mkdir -p ${CACHE_DIR}
 
 # Run training with task="SquareOOD" and wandb.project="square_residual_rl"
-python3.10 resfit/rl_finetuning/scripts/train_residual_td3.py \
+python resfit/rl_finetuning/scripts/train_residual_td3.py \
     env_modifier.mode=none \
     env_modifier.disturbance=null \
     task="${TASK}" \
