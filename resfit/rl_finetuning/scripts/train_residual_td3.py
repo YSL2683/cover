@@ -14,6 +14,7 @@ os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
 # Stop threads from spin-waiting
 os.environ.setdefault("KMP_BLOCKTIME", "0")
 os.environ.setdefault("OMP_WAIT_POLICY", "PASSIVE")
+os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 os.environ.setdefault("KMP_AFFINITY", "granularity=fine,compact,1,0")
 
 import hashlib
@@ -230,9 +231,15 @@ def main(cfg: ResidualTD3DexmgConfig):
 
     # Enable performance optimizations
     if device.type == "cuda":
-        torch.backends.cudnn.benchmark = False  # Unconditionally False for RL reproducibility
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.allow_tf32 = True
+        # ---------------------------------------------------------------------
+        # Deep Determinism Control
+        # ---------------------------------------------------------------------
+        is_deterministic = cfg.torch_deterministic
+        torch.backends.cudnn.deterministic = is_deterministic
+        torch.backends.cudnn.benchmark = not is_deterministic
+        torch.backends.cuda.matmul.allow_tf32 = not is_deterministic
+        torch.backends.cudnn.allow_tf32 = not is_deterministic
+        torch.use_deterministic_algorithms(is_deterministic, warn_only=True)
 
     # ---------------------------------------------------------------------
     # Load the behaviour-cloning policy that will serve as the "base" policy
@@ -336,7 +343,6 @@ def main(cfg: ResidualTD3DexmgConfig):
         torch.cuda.manual_seed_all(cfg.seed)
 
     # Set deterministic behavior
-    torch.backends.cudnn.deterministic = cfg.torch_deterministic
 
     print(f"Set random seed to {cfg.seed}")
 
