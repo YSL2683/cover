@@ -138,9 +138,9 @@ def visualize_analysis(rl_latent_path, script_dir):
             for i, traj in enumerate(demo_traj_2d_list):
                 # Plot start marker only
                 if i == 0:
-                    ax.scatter(traj[0, 0], traj[0, 1], color=start_color_demo, marker='o', s=80, zorder=6, edgecolors='darkorange', label='ID Start')
+                    ax.scatter(traj[0, 0], traj[0, 1], color=start_color_demo, marker='^', s=100, zorder=6, edgecolors='darkorange', label='ID Start')
                 else:
-                    ax.scatter(traj[0, 0], traj[0, 1], color=start_color_demo, marker='o', s=80, zorder=6, edgecolors='darkorange')
+                    ax.scatter(traj[0, 0], traj[0, 1], color=start_color_demo, marker='^', s=100, zorder=6, edgecolors='darkorange')
         
         # Plot Goal for Demo
         ax.scatter(goal_demo_2d[:, 0], goal_demo_2d[:, 1], color='orange', marker='*', s=150, zorder=7, edgecolors='k', label='ID Goal')
@@ -291,10 +291,10 @@ def plot_eval_latents(z_f_rl, z_w_rl, script_dir, save_path, step=None, e2c_dir=
         if demo_traj_2d:
             for i, traj in enumerate(demo_traj_2d):
                 if i == 0:
-                    ax.scatter(traj[0, 0], traj[0, 1], color=start_color_demo, marker='o', s=80, zorder=6, edgecolors='black', label='ID Demo Start')
+                    ax.scatter(traj[0, 0], traj[0, 1], color=start_color_demo, marker='^', s=100, zorder=6, edgecolors='black', label='ID Demo Start')
                     ax.scatter(traj[-1, 0], traj[-1, 1], color='darkorange', marker='*', s=150, zorder=7, edgecolors='black', label='ID Demo Goal')
                 else:
-                    ax.scatter(traj[0, 0], traj[0, 1], color=start_color_demo, marker='o', s=80, zorder=6, edgecolors='black')
+                    ax.scatter(traj[0, 0], traj[0, 1], color=start_color_demo, marker='^', s=100, zorder=6, edgecolors='black')
                     ax.scatter(traj[-1, 0], traj[-1, 1], color='darkorange', marker='*', s=150, zorder=7, edgecolors='black')
         
         # RL Trajectories (Points/Lines)
@@ -342,190 +342,315 @@ def plot_eval_latents(z_f_rl, z_w_rl, script_dir, save_path, step=None, e2c_dir=
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     plt.savefig(save_path, dpi=150)
     plt.close()
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--base_policy_path", type=str, required=False, help="Path to base policy directory")
-    parser.add_argument("--residual_policy_path", type=str, required=False, help="Path to residual agent checkpoint (.pt)")
-    parser.add_argument("--n_episodes", type=int, default=20, help="Number of successful episodes to collect")
-    parser.add_argument("--ood_range", type=float, default=None, help="OOD initialization range in meters (e.g. 0.05 or 0.1). If provided, applies OOD_pos environment setup.")
-    parser.add_argument("--only_plot", action="store_true", help="Only generate plot using existing latents")
-    parser.add_argument("--latent_path", type=str, default=None, help="Path to existing rl_latents.pt when using --only_plot")
-    args = parser.parse_args()
     
-    script_dir = os.path.dirname(os.path.abspath(__file__))
 
-    if args.only_plot:
-        if args.latent_path is None:
-            print("Please provide --latent_path when using --only_plot")
-            return
-        print("\n--- Starting Advanced PCA & Distance Visualization (Only Plot) ---")
-        visualize_analysis(args.latent_path, script_dir)
+def plot_crossview_pca(z_f_rl, z_w_rl, script_dir, save_path, step=None, e2c_dir=None, gamma_f=None, gamma_w=None, is_2squared=False):
+    import os
+    import torch
+    import numpy as np
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    import matplotlib.cm as cm
+    from sklearn.decomposition import PCA
+    from scipy.stats import gaussian_kde
+    import scipy.spatial.distance as dist
+    
+    if e2c_dir is None: return
+    demo_latent_path = os.path.join(e2c_dir, "demo_latents.pt")
+    if not os.path.exists(demo_latent_path): return
         
-        # Test eval visualization logic
-        print("\n--- Testing Eval Visualization Logic ---")
-        try:
-            data = torch.load(args.latent_path, map_location="cpu")
-            z_f_rl = data["z_rl_main"]
-            z_w_rl = data["z_rl_wrist"]
-            e2c_dir = os.path.join(script_dir, "lane/pretrained_e2c/lift")
-            eval_save_path = os.path.join(os.path.dirname(args.latent_path), "test_eval_plot.png")
-            plot_eval_latents(z_f_rl, z_w_rl, script_dir, eval_save_path, step="Offline", e2c_dir=e2c_dir)
-            print(f"Eval PCA Plot successfully generated at {eval_save_path}")
-        except Exception as e:
-            print(f"Failed to test eval visualization logic: {e}")
-            
-        return
-
-    residual_path_obj = Path(args.residual_policy_path).resolve()
-    run_dir = residual_path_obj.parent.parent
-    latent_dir = run_dir / "latent"
-    out_path = str(latent_dir / "rl_latents.pt")
-
-    if args.ood_range is not None:
-        os.environ["EXPERIMENT_MODE"] = "OOD_pos"
-        os.environ["OOD_RANGE"] = str(args.ood_range)
-        print(f"Set environment variables for OOD: EXPERIMENT_MODE=OOD_pos, OOD_RANGE={args.ood_range}")
-    else:
-        print("Note: --ood_range not provided. Defaulting to codebase's environment setup (usually ID).")
-
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-
-    with initialize(version_base=None, config_path="resfit/rl_finetuning/config"):
-        cfg = compose(
-            config_name="residual_td3_dexmg_config",
-            overrides=[
-                "task=Lift",
-                "rl_camera=['observation.images.agentview','observation.images.robot0_eye_in_hand']"
-            ]
-        )
-
-    print(f"Loading base policy from {args.base_policy_path}...")
-    base_policy = load_policy(Path(args.base_policy_path)).to(device)
-    base_policy.eval()
-
-    print("Loading dataset for normalization stats...")
-    dataset = LeRobotDataset(cfg.offline_data.name, root=f"resfit/my_lerobot_data/{cfg.offline_data.name}")
-    action_scaler = ActionScaler.from_dataset_stats(
-        action_stats=dataset.meta.stats["action"],
-        action_scale=cfg.agent.actor.action_scale,
-        min_range_per_dim=cfg.offline_data.min_action_range,
-        device=device,
-    )
-    state_standardizer = StateStandardizer.from_dataset_stats(
-        state_stats=dataset.meta.stats["observation.state"],
-        min_std=cfg.offline_data.min_state_std,
-        device=device,
-    )
-
-    print("Creating environment...")
-    vec_env = create_vectorized_env(
-        env_name=cfg.task,
-        num_envs=1,
-        device=device,
-        video_key=cfg.video_key,
-        debug=False,
-        camera_size=128,
-    )
-    env = BasePolicyVecEnvWrapper(vec_env, base_policy, action_scaler, state_standardizer)
-
-    if OmegaConf.is_list(cfg.rl_camera) or isinstance(cfg.rl_camera, (list, tuple)):
-        image_keys = list(cfg.rl_camera)
-    else:
-        image_keys = [cfg.rl_camera]
-    img_c, img_h, img_w = vec_env.observation_space[image_keys[0]].shape[1:]
-    lowdim_dim = vec_env.observation_space["observation.state"].shape[1]
-    action_dim = vec_env.action_space.shape[1]
-
-    agent = QAgent(
-        obs_shape=(img_c, img_h, img_w),
-        prop_shape=(lowdim_dim,),
-        action_dim=action_dim,
-        rl_cameras=image_keys,
-        cfg=cfg.agent,
-        residual_actor=True,
-    )
-    print(f"Loading residual policy from {args.residual_policy_path}...")
-    agent.load_state_dict(torch.load(args.residual_policy_path, map_location=device, weights_only=True))
-    agent.eval()
-
-    print("Loading E2C and DINO...")
-    dino = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14_reg").to(device)
-    dino.eval()
-
-    e2c_f = MLPE2C(obs_shape=(384,), action_dim=action_dim, z_dimension=16).to(device)
-    e2c_w = MLPE2C(obs_shape=(384,), action_dim=action_dim, z_dimension=16).to(device)
+    demo_data = torch.load(demo_latent_path, map_location="cpu", weights_only=False)
+    z_f_demo = demo_data.get("z_demo_main", demo_data.get("z_demo_front"))
+    z_w_demo = demo_data["z_demo_wrist"]
     
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    e2c_f.load_state_dict(torch.load(os.path.join(script_dir, "lane/pretrained_e2c/lift/e2c_main.pt"), map_location=device))
-    e2c_w.load_state_dict(torch.load(os.path.join(script_dir, "lane/pretrained_e2c/lift/e2c_wrist.pt"), map_location=device))
-    e2c_f.eval()
-    e2c_w.eval()
-
-    print(f"Collecting {args.n_episodes} successful episodes...")
-    z_rl_front = []
-    z_rl_wrist = []
-    rl_lengths = []
-
-    success_count = 0
-    max_steps = 300
-
-    while success_count < args.n_episodes:
-        obs, _ = env.reset()
-        episode_zf = []
-        episode_zw = []
-        success = False
-
-        for step in range(max_steps):
-            with torch.no_grad():
-                action = agent.act(obs, eval_mode=True, stddev=0.0, cpu=False)
-
-            front_img = obs["observation.images.agentview"]
-            wrist_img = obs["observation.images.robot0_eye_in_hand"]
-            obs_img = torch.cat([front_img, wrist_img], dim=1)
-
-            feat_f, feat_w = get_dino_features(obs_img, dino, device)
-
-            with torch.no_grad():
-                zf, _ = e2c_f.enc(feat_f)
-                zw, _ = e2c_w.enc(feat_w)
-
-            episode_zf.append(zf.cpu())
-            episode_zw.append(zw.cpu())
-
-            next_obs, reward, terminated, truncated, info = env.step(action)
-
-            # Check success robustly
-            if "final_info" in info and isinstance(info["final_info"], list) and info["final_info"][0] is not None:
-                if info["final_info"][0].get("success", False):
-                    success = True
-            if reward > 0.5:
-                success = True
-
-            if terminated.any() or truncated.any():
-                break
-
-            obs = next_obs
-
-        if success:
-            success_count += 1
-            print(f"Episode {success_count}/{args.n_episodes} successful. Length: {len(episode_zf)}")
-            z_rl_front.append(torch.cat(episode_zf, dim=0).unsqueeze(0))
-            z_rl_wrist.append(torch.cat(episode_zw, dim=0).unsqueeze(0))
-            rl_lengths.append(len(episode_zf))
+    all_z_f_demo = np.concatenate([z.squeeze(0).numpy() for z in z_f_demo], axis=0)
+    all_z_w_demo = np.concatenate([z.squeeze(0).numpy() for z in z_w_demo], axis=0)
+    
+    pca_f = PCA(n_components=2).fit(all_z_f_demo)
+    pca_w = PCA(n_components=2).fit(all_z_w_demo)
+    
+    f_demo_2d = pca_f.transform(all_z_f_demo)
+    w_demo_2d = pca_w.transform(all_z_w_demo)
+    
+    rl_traj_f_list = [z.squeeze(0).cpu().numpy() if z.ndim > 2 else z.cpu().numpy() for z in z_f_rl]
+    rl_traj_w_list = [z.squeeze(0).cpu().numpy() if z.ndim > 2 else z.cpu().numpy() for z in z_w_rl]
+    
+    all_z_f_rl_flat = np.vstack(rl_traj_f_list)
+    all_z_w_rl_flat = np.vstack(rl_traj_w_list)
+    
+    dist_f = dist.cdist(all_z_f_rl_flat, all_z_f_demo, 'sqeuclidean')
+    min_dist_f = dist_f.min(axis=1)
+    dist_w = dist.cdist(all_z_w_rl_flat, all_z_w_demo, 'sqeuclidean')
+    min_dist_w = dist_w.min(axis=1)
+    
+    if gamma_f is not None and gamma_w is not None:
+        # Use the exact reward shaping values
+        _gamma_f = gamma_f
+        _gamma_w = gamma_w
+        if not is_2squared:
+            # 4th power kernel uses squared min_dist because min_dist is already squared
+            S_f_global = np.exp(-_gamma_f * (min_dist_f ** 2))
+            S_w_global = np.exp(-_gamma_w * (min_dist_w ** 2))
         else:
-            print("Episode failed. Retrying...")
+            S_f_global = np.exp(-_gamma_f * min_dist_f)
+            S_w_global = np.exp(-_gamma_w * min_dist_w)
+    else:
+        # Fallback normalization for offline tests
+        _gamma_f = 2.0 / (np.mean(min_dist_f) + 1e-8)
+        S_f_global = np.exp(-_gamma_f * min_dist_f)
+        _gamma_w = 2.0 / (np.mean(min_dist_w) + 1e-8)
+        S_w_global = np.exp(-_gamma_w * min_dist_w)
+    
+    fig = plt.figure(figsize=(16, 7))
+    
+    def plot_single_crossview(ax, demo_2d, demo_raw_list, rl_traj_list, pca_model, S_other_global, title, cbar_label):
+        ax.set_title(title, fontsize=14, pad=15)
+        
+        x, y = demo_2d[:, 0], demo_2d[:, 1]
+        xmin, xmax = x.min() - 0.5, x.max() + 0.5
+        ymin, ymax = y.min() - 0.5, y.max() + 0.5
+        X, Y = np.mgrid[xmin:xmax:100j, ymin:ymax:100j]
+        positions = np.vstack([X.ravel(), Y.ravel()])
+        values = np.vstack([x, y])
+        kernel = gaussian_kde(values)
+        Z = np.reshape(kernel(positions).T, X.shape)
+        
+        ax.contourf(X, Y, Z, levels=15, cmap='Oranges', alpha=0.5)
+        
+        start_color_demo = cm.Oranges(0.4)
+        start_color_rl = cm.Blues(0.3)
+        
+        for i, traj_raw in enumerate(demo_raw_list):
+            traj_arr = traj_raw.squeeze(0).numpy() if hasattr(traj_raw, 'numpy') else traj_raw
+            traj_2d = pca_model.transform(traj_arr)
+            if i == 0:
+                ax.scatter(traj_2d[0, 0], traj_2d[0, 1], color=start_color_demo, marker='^', s=100, zorder=6, edgecolors='black', label='ID Demo Start')
+                ax.scatter(traj_2d[-1, 0], traj_2d[-1, 1], color='darkorange', marker='*', s=150, zorder=7, edgecolors='black', label='ID Demo Goal')
+            else:
+                ax.scatter(traj_2d[0, 0], traj_2d[0, 1], color=start_color_demo, marker='^', s=100, zorder=6, edgecolors='black')
+                ax.scatter(traj_2d[-1, 0], traj_2d[-1, 1], color='darkorange', marker='*', s=150, zorder=7, edgecolors='black')
+                
+        cmap = "viridis"
+        idx = 0
+        sc = None
+        for i, traj in enumerate(rl_traj_list):
+            n_points = len(traj)
+            traj_2d = pca_model.transform(traj)
+            S_traj = S_other_global[idx:idx+n_points]
+            idx += n_points
+            sc = ax.scatter(traj_2d[:, 0], traj_2d[:, 1], c=S_traj, cmap=cmap, s=25, zorder=5, alpha=0.9, vmin=0, vmax=1)
+            
+            if i == 0:
+                ax.scatter(traj_2d[0, 0], traj_2d[0, 1], color=start_color_rl, marker='^', s=100, zorder=8, edgecolors='black', label='RL Start')
+                ax.scatter(traj_2d[-1, 0], traj_2d[-1, 1], color=start_color_rl, marker='*', s=150, zorder=9, edgecolors='black', label='RL Goal')
+            else:
+                ax.scatter(traj_2d[0, 0], traj_2d[0, 1], color=start_color_rl, marker='^', s=100, zorder=8, edgecolors='black')
+                ax.scatter(traj_2d[-1, 0], traj_2d[-1, 1], color=start_color_rl, marker='*', s=150, zorder=9, edgecolors='black')
+            
+        ax.set_xlabel("Principal Component 1", fontsize=12)
+        ax.set_ylabel("Principal Component 2", fontsize=12)
+        ax.grid(True, alpha=0.3)
+        cbar = fig.colorbar(sc, ax=ax, fraction=0.046, pad=0.04)
+        cbar.set_label(cbar_label, rotation=270, labelpad=20, fontsize=12, fontweight='bold')
+        handles, labels = ax.get_legend_handles_labels()
+        by_label = dict(zip(labels, handles))
+        ax.legend(by_label.values(), by_label.keys(), loc='best')
 
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    torch.save({
-        "z_rl_main": z_rl_front,
-        "z_rl_wrist": z_rl_wrist,
-        "rl_lengths": rl_lengths
-    }, out_path)
-    print(f"Saved RL latents to {out_path}")
+    ax1 = plt.subplot(1, 2, 1)
+    plot_single_crossview(ax1, f_demo_2d, z_f_demo, rl_traj_f_list, pca_f, S_w_global, 
+                          "Main Camera PCA (Colored by S_wrist)", "Guidance from Wrist Camera (S_wrist)")
+    ax2 = plt.subplot(1, 2, 2)
+    plot_single_crossview(ax2, w_demo_2d, z_w_demo, rl_traj_w_list, pca_w, S_f_global, 
+                          "Wrist Camera PCA (Colored by S_main)", "Guidance from Main Camera (S_main)")
 
-    print("\n--- Starting PCA & Distance Visualization ---")
-    visualize_analysis(out_path, script_dir)
+    if step is not None: plt.suptitle(f"Latent Cross-View PCA at Step {step}", fontsize=14)
+    plt.tight_layout()
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    plt.savefig(save_path, dpi=150)
+    plt.close()
 
-if __name__ == "__main__":
-    main()
+
+def plot_representative_1d_scores(z_f_rl, z_w_rl, script_dir, save_path, step=None, e2c_dir=None, num_episodes=4, gamma_f=None, gamma_w=None, is_2squared=False):
+    import os
+    import torch
+    import numpy as np
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    import scipy.spatial.distance as dist
+    
+    if e2c_dir is None: return
+    demo_latent_path = os.path.join(e2c_dir, "demo_latents.pt")
+    if not os.path.exists(demo_latent_path): return
+        
+    demo_data = torch.load(demo_latent_path, map_location="cpu", weights_only=False)
+    z_f_demo = demo_data.get("z_demo_main", demo_data.get("z_demo_front"))
+    z_w_demo = demo_data["z_demo_wrist"]
+    
+    all_z_f_demo = np.concatenate([z.squeeze(0).numpy() for z in z_f_demo], axis=0)
+    all_z_w_demo = np.concatenate([z.squeeze(0).numpy() for z in z_w_demo], axis=0)
+    
+    rl_traj_f_list = [z.squeeze(0).cpu().numpy() if z.ndim > 2 else z.cpu().numpy() for z in z_f_rl]
+    rl_traj_w_list = [z.squeeze(0).cpu().numpy() if z.ndim > 2 else z.cpu().numpy() for z in z_w_rl]
+    
+    all_z_f_rl_flat = np.vstack(rl_traj_f_list)
+    all_z_w_rl_flat = np.vstack(rl_traj_w_list)
+    
+    dist_f = dist.cdist(all_z_f_rl_flat, all_z_f_demo, 'sqeuclidean')
+    min_dist_f = dist_f.min(axis=1)
+    dist_w = dist.cdist(all_z_w_rl_flat, all_z_w_demo, 'sqeuclidean')
+    min_dist_w = dist_w.min(axis=1)
+    
+    if gamma_f is not None and gamma_w is not None:
+        # Use the exact reward shaping values
+        _gamma_f = gamma_f
+        _gamma_w = gamma_w
+        if not is_2squared:
+            # 4th power kernel uses squared min_dist because min_dist is already squared
+            S_f_global = np.exp(-_gamma_f * (min_dist_f ** 2))
+            S_w_global = np.exp(-_gamma_w * (min_dist_w ** 2))
+        else:
+            S_f_global = np.exp(-_gamma_f * min_dist_f)
+            S_w_global = np.exp(-_gamma_w * min_dist_w)
+    else:
+        # Fallback normalization for offline tests
+        _gamma_f = 2.0 / (np.mean(min_dist_f) + 1e-8)
+        S_f_global = np.exp(-_gamma_f * min_dist_f)
+        _gamma_w = 2.0 / (np.mean(min_dist_w) + 1e-8)
+        S_w_global = np.exp(-_gamma_w * min_dist_w)
+    
+    # Calculate OOD variance metric for each trajectory
+    idx = 0
+    traj_metrics = []
+    for i, traj in enumerate(rl_traj_f_list):
+        n = len(traj)
+        sf = S_f_global[idx:idx+n]
+        sw = S_w_global[idx:idx+n]
+        idx += n
+        
+        # Metric: how strongly one view was ID while the other was OOD
+        # High sum of absolute differences = strong asymmetric guidance
+        metric = np.sum(np.abs(sf - sw))
+        traj_metrics.append((metric, sf, sw, i))
+        
+    # Sort by highest metric and take top N
+    traj_metrics.sort(key=lambda x: x[0], reverse=True)
+    top_trajs = traj_metrics[:num_episodes]
+    
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    axes = axes.flatten()
+    
+    for i, (metric, sf, sw, orig_idx) in enumerate(top_trajs):
+        ax = axes[i]
+        timesteps = np.arange(len(sf))
+        ax.plot(timesteps, sf, label='S_main (Main Camera)', color='#2ca02c', linewidth=2.5)
+        ax.plot(timesteps, sw, label='S_wrist (Wrist Camera)', color='#d62728', linewidth=2.5)
+        
+        # Dynamic Shading
+        ax.fill_between(timesteps, sf, sw, where=(sf >= sw), color='#2ca02c', alpha=0.2, interpolate=True, label='Main Dominant')
+        ax.fill_between(timesteps, sf, sw, where=(sw > sf), color='#d62728', alpha=0.2, interpolate=True, label='Wrist Dominant')
+        
+        ax.set_title(f"Episode {orig_idx+1} (Length: {len(sf)})", fontsize=12)
+        ax.set_xlabel("Timestep")
+        ax.set_ylabel("Similarity Score [0, 1]")
+        ax.set_ylim(-0.05, 1.05)
+        ax.grid(True, alpha=0.3)
+        if i == 0:
+            ax.legend(loc='best')
+            
+    if step is not None:
+        plt.suptitle(f"Top {len(top_trajs)} OOD-Adapted Episodes at Step {step}", fontsize=16)
+        
+    plt.tight_layout()
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    plt.savefig(save_path, dpi=150)
+    plt.close()
+
+
+
+def create_top3_score_video(video_paths, z_f_list, z_w_list, save_path, e2c_dir, gamma_f, gamma_w, is_2squared):
+    import os
+    import cv2
+    import torch
+    import numpy as np
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    import scipy.spatial.distance as dist
+    import imageio
+
+    if e2c_dir is None: return
+    demo_latent_path = os.path.join(e2c_dir, "demo_latents.pt")
+    if not os.path.exists(demo_latent_path): return
+
+    demo_data = torch.load(demo_latent_path, map_location="cpu", weights_only=False)
+    z_f_demo = demo_data.get("z_demo_main", demo_data.get("z_demo_front"))
+    z_w_demo = demo_data["z_demo_wrist"]
+    all_z_f_demo = np.concatenate([z.squeeze(0).numpy() for z in z_f_demo], axis=0)
+    all_z_w_demo = np.concatenate([z.squeeze(0).numpy() for z in z_w_demo], axis=0)
+
+    # Calculate metrics to find top 3
+    traj_metrics = []
+    for i, (zf, zw) in enumerate(zip(z_f_list, z_w_list)):
+        zf_arr = zf.squeeze(0).cpu().numpy() if zf.ndim > 2 else zf.cpu().numpy()
+        zw_arr = zw.squeeze(0).cpu().numpy() if zw.ndim > 2 else zw.cpu().numpy()
+        
+        df = dist.cdist(zf_arr, all_z_f_demo, 'sqeuclidean').min(axis=1)
+        dw = dist.cdist(zw_arr, all_z_w_demo, 'sqeuclidean').min(axis=1)
+        
+        if not is_2squared:
+            sf = np.exp(-gamma_f * (df ** 2))
+            sw = np.exp(-gamma_w * (dw ** 2))
+        else:
+            sf = np.exp(-gamma_f * df)
+            sw = np.exp(-gamma_w * dw)
+            
+        metric = np.sum(np.abs(sf - sw))
+        traj_metrics.append((metric, sf, sw, i))
+
+    # Sort and pick top 3
+    traj_metrics.sort(key=lambda x: x[0], reverse=True)
+    top_trajs = traj_metrics[:3]
+
+    writer = imageio.get_writer(save_path, fps=20)
+
+    for rank, (metric, sf, sw, orig_idx) in enumerate(top_trajs):
+        if orig_idx >= len(video_paths): continue
+        frames = np.load(video_paths[orig_idx])
+        T = len(sf)
+        
+        orig_w = frames[0].shape[1]
+        dpi = orig_w / 10.0
+
+        fig, ax = plt.subplots(figsize=(10, 3), dpi=dpi)
+        timesteps = np.arange(T)
+        ax.plot(timesteps, sf, label='S_main', color='#2ca02c', linewidth=2.5)
+        ax.plot(timesteps, sw, label='S_wrist', color='#d62728', linewidth=2.5)
+        ax.fill_between(timesteps, sf, sw, where=(sf >= sw), color='#2ca02c', alpha=0.2, interpolate=True)
+        ax.fill_between(timesteps, sf, sw, where=(sw > sf), color='#d62728', alpha=0.2, interpolate=True)
+
+        ax.set_title(f"Rank {rank+1} OOD Adaptation (Original Ep: {orig_idx+1})", fontsize=12)
+        ax.set_ylim(-0.05, 1.05)
+        ax.set_xlim(0, max(1, T-1))
+        ax.grid(True, alpha=0.3)
+        ax.legend(loc='upper right', fontsize=8)
+        
+        vline = ax.axvline(x=0, color='black', linestyle='--', linewidth=2)
+        fig.tight_layout()
+
+        for t in range(min(T, len(frames))):
+            vline.set_xdata([t, t])
+            fig.canvas.draw()
+            plot_img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+            plot_img = plot_img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+            
+            if plot_img.shape[1] != frames[t].shape[1]:
+                plot_img = cv2.resize(plot_img, (frames[t].shape[1], plot_img.shape[0]))
+                
+            combined = np.concatenate([frames[t], plot_img], axis=0)
+            writer.append_data(combined)
+
+        plt.close(fig)
+        
+    writer.close()

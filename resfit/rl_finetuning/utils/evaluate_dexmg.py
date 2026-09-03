@@ -217,7 +217,12 @@ def run_dexmg_evaluation(
     ep_z_f = [[] for _ in range(num_envs)] if lane_shaper is not None else None
     ep_z_w = [[] for _ in range(num_envs)] if lane_shaper is not None else None
     all_success_z_f = [] if lane_shaper is not None else None
-    all_success_z_w = [] if lane_shaper is not None else None
+    all_success_z_w = []
+    
+    # NEW: Cache for Top-3 adaptation videos
+    import tempfile
+    video_cache_dir = tempfile.mkdtemp(prefix="resfit_eval_")
+    success_video_paths = [] if lane_shaper is not None else None
 
     done_episodes = 0
     obs, _ = env.reset()
@@ -338,6 +343,25 @@ def run_dexmg_evaluation(
                     episode_qs = ep_q_preds[env_idx]
 
                     episode_global_idx = done_episodes + 1  # 1-based
+
+                    # Save to temp cache if successful
+                    if is_success:
+                        import os
+                        cache_path = os.path.join(video_cache_dir, f"success_{episode_global_idx}.npy")
+                        # Annotate all frames for this episode to save
+                        cached_frames = []
+                        for step_idx, fr in enumerate(episode_frames):
+                            plot_img = _render_3d_action_vectors(
+                                base_act_buffer[env_idx][step_idx], res_act_buffer[env_idx][step_idx], tot_act_buffer[env_idx][step_idx], target_h=fr.shape[0]
+                            )
+                            combined_fr = np.concatenate([fr, plot_img], axis=1)
+                            annotated_fr = _annotate_frame(
+                                combined_fr, env_idx=env_idx, episode_num=episode_global_idx, total_episodes=num_episodes,
+                                step_idx=step_idx + 1, is_success=is_success, q_value=episode_qs[step_idx]
+                            )
+                            cached_frames.append(annotated_fr)
+                        np.save(cache_path, np.array(cached_frames, dtype=np.uint8))
+                        success_video_paths.append(cache_path)
 
                     # Only save the first episode video to avoid huge files
                     if episode_global_idx == 1:
@@ -463,7 +487,11 @@ def run_dexmg_evaluation(
     # ------------------------------------------------------------------
     if lane_shaper is not None and all_success_z_f and run_name is not None:
         import os
-        from visualize_rl_latents import plot_eval_latents
+        import sys, importlib
+        if "visualize_rl_latents" in sys.modules:
+            importlib.reload(sys.modules["visualize_rl_latents"])
+        from visualize_rl_latents import plot_eval_latents, plot_crossview_pca, plot_representative_1d_scores
+        
         parent = Path(str(output_dir or "outputs")) / run_name.split("__")[0]
         latent_dir = parent / "latent"
         latent_dir.mkdir(parents=True, exist_ok=True)
@@ -471,11 +499,65 @@ def run_dexmg_evaluation(
         plot_name = f"eval_pca_{run_name}_step_{global_step if global_step is not None else 'NA'}.png"
         plot_path = latent_dir / plot_name
         
+        crossview_name = f"eval_pca_crossview_{run_name}_step_{global_step if global_step is not None else 'NA'}.png"
+        crossview_path = latent_dir / crossview_name
+        
+        scores_name = f"eval_1d_scores_{run_name}_step_{global_step if global_step is not None else 'NA'}.png"
+        scores_path = latent_dir / scores_name
+        
         project_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+        
+        # Extract exact gammas from lane_shaper
+        is_2squared = ("2squared" in lane_shaper.reward_type) if hasattr(lane_shaper, 'reward_type') else False
+        
+        if is_2squared:
+            gamma_f = lane_shaper.beta / (lane_shaper.ref_one_step_dist_main + 1e-8)
+            gamma_w = lane_shaper.beta / (lane_shaper.ref_one_step_dist_wrist + 1e-8)
+        else:
+            gamma_f = lane_shaper.beta / ((lane_shaper.ref_one_step_dist_main ** 2) + 1e-8)
+            gamma_w = lane_shaper.beta / ((lane_shaper.ref_one_step_dist_wrist ** 2) + 1e-8)
+            
+        # 1. Original Time-Gradient PCA
         plot_eval_latents(all_success_z_f, all_success_z_w, project_dir, str(plot_path), step=global_step, e2c_dir=e2c_dir)
         
-        if wandb.run is not None:
-            wandb.log({"eval/latent_pca": wandb.Image(str(plot_path))}, step=global_step)
+        # 2. Cross-View Similarity Mapped PCA
+        plot_crossview_pca(all_success_z_f, all_success_z_w, project_dir, str(crossview_path), step=global_step, e2c_dir=e2c_dir, gamma_f=gamma_f, gamma_w=gamma_w, is_2squared=is_2squared)
+        
+        
+        # Render Top 3 Adaptation Video
+        if save_video and len(success_video_paths) > 0:
+            try:
+                from visualize_rl_latents import create_top3_score_video
+                top3_vid_name = f"eval_score_plot_{run_name}_step_{global_step if global_step is not None else 'NA'}.mp4"
+                top3_vid_path = latent_dir / top3_vid_name
+                create_top3_score_video(
+                    success_video_paths, all_success_z_f, all_success_z_w, 
+                    str(top3_vid_path), e2c_dir, gamma_f, gamma_w, is_2squared
+                )
+                
+                if wandb.run is not None and top3_vid_path.exists():
+                    wandb.log({
+                        "eval/latent_pca": wandb.Image(str(plot_path)),
+                        "eval/latent_pca_crossview": wandb.Image(str(crossview_path)),
+                        "eval/video_score_plot": wandb.Video(str(top3_vid_path), format="mp4")
+                    }, step=global_step)
+            except Exception as e:
+                print(f"Failed to create top3 video: {e}")
+                if wandb.run is not None:
+                    wandb.log({
+                        "eval/latent_pca": wandb.Image(str(plot_path)),
+                        "eval/latent_pca_crossview": wandb.Image(str(crossview_path))
+                    }, step=global_step)
+        else:
+            if wandb.run is not None:
+                wandb.log({
+                    "eval/latent_pca": wandb.Image(str(plot_path)),
+                    "eval/latent_pca_crossview": wandb.Image(str(crossview_path))
+                }, step=global_step)
+                
+        # Cleanup temp files
+        import shutil
+        shutil.rmtree(video_cache_dir, ignore_errors=True)
 
     # Restore training mode --------------------------------------------
     agent.train(True)
