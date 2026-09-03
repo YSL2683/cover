@@ -217,12 +217,12 @@ def run_dexmg_evaluation(
     ep_z_f = [[] for _ in range(num_envs)] if lane_shaper is not None else None
     ep_z_w = [[] for _ in range(num_envs)] if lane_shaper is not None else None
     all_success_z_f = [] if lane_shaper is not None else None
-    all_success_z_w = []
+    all_success_z_w = [] if lane_shaper is not None else None
     
     # NEW: Cache for Top-3 adaptation videos
     import tempfile
     video_cache_dir = tempfile.mkdtemp(prefix="resfit_eval_")
-    success_video_paths = [] if lane_shaper is not None else None
+    success_video_paths = []
 
     done_episodes = 0
     obs, _ = env.reset()
@@ -555,9 +555,13 @@ def run_dexmg_evaluation(
                     "eval/latent_pca_crossview": wandb.Image(str(crossview_path))
                 }, step=global_step)
                 
-        # Cleanup temp files
+    # Cleanup temp files safely regardless of success
+    try:
         import shutil
-        shutil.rmtree(video_cache_dir, ignore_errors=True)
+        if 'video_cache_dir' in locals():
+            shutil.rmtree(video_cache_dir, ignore_errors=True)
+    except Exception:
+        pass
 
     # Restore training mode --------------------------------------------
     agent.train(True)

@@ -264,6 +264,25 @@ def main(cfg: ResidualTD3DexmgConfig):
     eval_base_policy: DiffusionPolicy = load_policy(policy_dir)
     eval_base_policy.to(device)
     eval_base_policy.eval()
+    
+    # Apply DDIM if specified in config
+    if getattr(cfg.base_policy, "diffusion_ddim_steps", None) is not None:
+        from resfit.lerobot.policies.diffusion.modeling_diffusion import _make_noise_scheduler
+        ddim_steps = cfg.base_policy.diffusion_ddim_steps
+        print(f"\n[INFO] Patching Base Diffusion Policy with DDIM ({ddim_steps} steps)\n")
+        
+        for p in [base_policy, eval_base_policy]:
+            if hasattr(p, "noise_scheduler"):
+                p.config.noise_scheduler_type = "DDIM"
+                p.config.num_inference_steps = ddim_steps
+                p.noise_scheduler = _make_noise_scheduler(
+                    "DDIM",
+                    num_train_timesteps=p.config.num_train_timesteps,
+                    beta_schedule=p.config.beta_schedule,
+                    beta_start=p.config.beta_start,
+                    beta_end=p.config.beta_end,
+                    clip_sample=p.config.clip_sample,
+                )
 
     # Extract the configuration from base policy
     base_cfg = base_policy.config

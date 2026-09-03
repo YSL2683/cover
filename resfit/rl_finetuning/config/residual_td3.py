@@ -39,6 +39,7 @@ class WandBConfig:
 
 @dataclass
 class BasePolicyConfig:
+    diffusion_ddim_steps: int | None = None  # Add DDIM steps option
     wandb_id: str = "TODO"
     wt_type: str = "best"
     wt_version: str = "latest"
