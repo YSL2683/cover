@@ -518,10 +518,16 @@ def run_dexmg_evaluation(
             gamma_w = lane_shaper.beta / ((lane_shaper.ref_one_step_dist_wrist ** 2) + 1e-8)
             
         # 1. Original Time-Gradient PCA
-        plot_eval_latents(all_success_z_f, all_success_z_w, project_dir, str(plot_path), step=global_step, e2c_dir=e2c_dir)
+        try:
+            plot_eval_latents(all_success_z_f, all_success_z_w, project_dir, str(plot_path), step=global_step, e2c_dir=e2c_dir)
+        except Exception as e:
+            print(f"[Warning] Failed to plot eval latents: {e}")
         
         # 2. Cross-View Similarity Mapped PCA
-        plot_crossview_pca(all_success_z_f, all_success_z_w, project_dir, str(crossview_path), step=global_step, e2c_dir=e2c_dir, gamma_f=gamma_f, gamma_w=gamma_w, is_2squared=is_2squared)
+        try:
+            plot_crossview_pca(all_success_z_f, all_success_z_w, project_dir, str(crossview_path), step=global_step, e2c_dir=e2c_dir, gamma_f=gamma_f, gamma_w=gamma_w, is_2squared=is_2squared)
+        except Exception as e:
+            print(f"[Warning] Failed to plot crossview PCA: {e}")
         
         
         # Render Top 3 Adaptation Video

@@ -27,9 +27,13 @@ def get_dino_features(images, dino, device):
     images = images.to(device)
     output_size = 112
     n, c, h, w = images.shape
-    top = (h - output_size) // 2
-    left = (w - output_size) // 2
-    cropped = images[:, :, top : top + output_size, left : left + output_size]
+    if h < output_size or w < output_size:
+        import torchvision.transforms.functional as TF
+        cropped = TF.resize(images, [output_size, output_size])
+    else:
+        top = (h - output_size) // 2
+        left = (w - output_size) // 2
+        cropped = images[:, :, top : top + output_size, left : left + output_size]
     # If images are [0, 255], divide by 255. BasePolicyVecEnvWrapper provides [0, 1] float
     if cropped.max() > 1.0:
         cropped = cropped.float() / 255.0
@@ -40,6 +44,43 @@ def get_dino_features(images, dino, device):
         feat_f = dino(front)
         feat_w = dino(wrist)
     return feat_f, feat_w
+
+def _to_np(z):
+    """Converts a latent trajectory (tensor, numpy array, list of tensors, or list of arrays)
+    into a 2D numpy array of shape (T, latent_dim).
+    """
+    if z is None:
+        return np.array([])
+    if isinstance(z, list):
+        if len(z) == 0:
+            return np.array([])
+        arrs = []
+        for x in z:
+            if hasattr(x, 'detach'):
+                x = x.detach().cpu().numpy()
+            elif hasattr(x, 'cpu'):
+                x = x.cpu().numpy()
+            else:
+                x = np.asarray(x)
+            arrs.append(x.reshape(-1))
+        return np.stack(arrs, axis=0)
+    else:
+        if hasattr(z, 'detach'):
+            z = z.detach().cpu().numpy()
+        elif hasattr(z, 'cpu'):
+            z = z.cpu().numpy()
+        else:
+            z = np.asarray(z)
+        if z.ndim == 3:
+            if z.shape[0] == 1:
+                z = z.squeeze(0)
+            elif z.shape[1] == 1:
+                z = z.squeeze(1)
+            else:
+                z = z.reshape(-1, z.shape[-1])
+        elif z.ndim == 1:
+            z = np.expand_dims(z, 0)
+        return z
 
 def visualize_analysis(rl_latent_path, script_dir):
     from sklearn.decomposition import PCA
@@ -78,8 +119,8 @@ def visualize_analysis(rl_latent_path, script_dir):
     all_z_w_demo = np.concatenate([z.squeeze(0).numpy() for z in z_w_demo], axis=0)
     
     if num_rl > 0:
-        all_z_f_rl = np.concatenate([z.squeeze(0).numpy() for z in z_f_rl], axis=0)
-        all_z_w_rl = np.concatenate([z.squeeze(0).numpy() for z in z_w_rl], axis=0)
+        all_z_f_rl = np.concatenate([_to_np(z) for z in z_f_rl], axis=0)
+        all_z_w_rl = np.concatenate([_to_np(z) for z in z_w_rl], axis=0)
     else:
         all_z_f_rl = np.array([])
         all_z_w_rl = np.array([])
@@ -102,8 +143,8 @@ def visualize_analysis(rl_latent_path, script_dir):
     goal_w_demo_2d = pca_w.transform(goal_w_demo)
     
     if num_rl > 0:
-        goal_f_rl = np.stack([z.squeeze(0).numpy()[-1] for z in z_f_rl], axis=0)
-        goal_w_rl = np.stack([z.squeeze(0).numpy()[-1] for z in z_w_rl], axis=0)
+        goal_f_rl = np.stack([_to_np(z)[-1] for z in z_f_rl], axis=0)
+        goal_w_rl = np.stack([_to_np(z)[-1] for z in z_w_rl], axis=0)
         goal_f_rl_2d = pca_f.transform(goal_f_rl)
         goal_w_rl_2d = pca_w.transform(goal_w_rl)
     
@@ -199,12 +240,12 @@ def visualize_analysis(rl_latent_path, script_dir):
         rl_traj_w_2d = []
         idx = 0
         for z in z_f_rl:
-            l = len(z.squeeze(0))
+            l = len(_to_np(z))
             rl_traj_f_2d.append(f_rl_2d[idx:idx+l])
             idx += l
         idx = 0
         for z in z_w_rl:
-            l = len(z.squeeze(0))
+            l = len(_to_np(z))
             rl_traj_w_2d.append(w_rl_2d[idx:idx+l])
             idx += l
     else:
@@ -301,15 +342,14 @@ def plot_eval_latents(z_f_rl, z_w_rl, script_dir, save_path, step=None, e2c_dir=
         if rl_traj_list:
             cmap_rl = cm.Blues
             for i, traj in enumerate(rl_traj_list):
-                if isinstance(traj, list):
-                    traj_numpy = np.stack([z.detach().cpu().squeeze().numpy() for z in traj], axis=0)
-                else:
-                    traj_numpy = traj.detach().cpu().squeeze(0).numpy()
-                    if traj_numpy.ndim == 1:
-                        traj_numpy = np.expand_dims(traj_numpy, 0)
+                traj_numpy = _to_np(traj)
+                if len(traj_numpy) == 0:
+                    continue
                 
                 traj_2d = pca_f.transform(traj_numpy) if "Main" in title else pca_w.transform(traj_numpy)
                 n_points = len(traj_2d)
+                if n_points == 0:
+                    continue
                 
                 if i == 0:
                     ax.scatter(traj_2d[0, 0], traj_2d[0, 1], color=cmap_rl(0.3), marker='^', s=100, zorder=8, edgecolors='black', label='RL Start')
@@ -373,8 +413,11 @@ def plot_crossview_pca(z_f_rl, z_w_rl, script_dir, save_path, step=None, e2c_dir
     f_demo_2d = pca_f.transform(all_z_f_demo)
     w_demo_2d = pca_w.transform(all_z_w_demo)
     
-    rl_traj_f_list = [z.squeeze(0).cpu().numpy() if z.ndim > 2 else z.cpu().numpy() for z in z_f_rl]
-    rl_traj_w_list = [z.squeeze(0).cpu().numpy() if z.ndim > 2 else z.cpu().numpy() for z in z_w_rl]
+    rl_traj_f_list = [arr for arr in [_to_np(z) for z in z_f_rl] if len(arr) > 0]
+    rl_traj_w_list = [arr for arr in [_to_np(z) for z in z_w_rl] if len(arr) > 0]
+    
+    if len(rl_traj_f_list) == 0 or len(rl_traj_w_list) == 0:
+        return
     
     all_z_f_rl_flat = np.vstack(rl_traj_f_list)
     all_z_w_rl_flat = np.vstack(rl_traj_w_list)
@@ -451,11 +494,13 @@ def plot_crossview_pca(z_f_rl, z_w_rl, script_dir, save_path, step=None, e2c_dir
         ax.set_xlabel("Principal Component 1", fontsize=12)
         ax.set_ylabel("Principal Component 2", fontsize=12)
         ax.grid(True, alpha=0.3)
-        cbar = fig.colorbar(sc, ax=ax, fraction=0.046, pad=0.04)
-        cbar.set_label(cbar_label, rotation=270, labelpad=20, fontsize=12, fontweight='bold')
+        if sc is not None:
+            cbar = fig.colorbar(sc, ax=ax, fraction=0.046, pad=0.04)
+            cbar.set_label(cbar_label, rotation=270, labelpad=20, fontsize=12, fontweight='bold')
         handles, labels = ax.get_legend_handles_labels()
-        by_label = dict(zip(labels, handles))
-        ax.legend(by_label.values(), by_label.keys(), loc='best')
+        if handles:
+            by_label = dict(zip(labels, handles))
+            ax.legend(by_label.values(), by_label.keys(), loc='best')
 
     ax1 = plt.subplot(1, 2, 1)
     plot_single_crossview(ax1, f_demo_2d, z_f_demo, rl_traj_f_list, pca_f, S_w_global, 
@@ -491,8 +536,11 @@ def plot_representative_1d_scores(z_f_rl, z_w_rl, script_dir, save_path, step=No
     all_z_f_demo = np.concatenate([z.squeeze(0).numpy() for z in z_f_demo], axis=0)
     all_z_w_demo = np.concatenate([z.squeeze(0).numpy() for z in z_w_demo], axis=0)
     
-    rl_traj_f_list = [z.squeeze(0).cpu().numpy() if z.ndim > 2 else z.cpu().numpy() for z in z_f_rl]
-    rl_traj_w_list = [z.squeeze(0).cpu().numpy() if z.ndim > 2 else z.cpu().numpy() for z in z_w_rl]
+    rl_traj_f_list = [arr for arr in [_to_np(z) for z in z_f_rl] if len(arr) > 0]
+    rl_traj_w_list = [arr for arr in [_to_np(z) for z in z_w_rl] if len(arr) > 0]
+    
+    if len(rl_traj_f_list) == 0 or len(rl_traj_w_list) == 0:
+        return
     
     all_z_f_rl_flat = np.vstack(rl_traj_f_list)
     all_z_w_rl_flat = np.vstack(rl_traj_w_list)
@@ -593,8 +641,10 @@ def create_top3_score_video(video_paths, z_f_list, z_w_list, save_path, e2c_dir,
     # Calculate metrics to find top 3
     traj_metrics = []
     for i, (zf, zw) in enumerate(zip(z_f_list, z_w_list)):
-        zf_arr = zf.squeeze(0).cpu().numpy() if zf.ndim > 2 else zf.cpu().numpy()
-        zw_arr = zw.squeeze(0).cpu().numpy() if zw.ndim > 2 else zw.cpu().numpy()
+        zf_arr = _to_np(zf)
+        zw_arr = _to_np(zw)
+        if len(zf_arr) == 0 or len(zw_arr) == 0:
+            continue
         
         df = dist.cdist(zf_arr, all_z_f_demo, 'sqeuclidean').min(axis=1)
         dw = dist.cdist(zw_arr, all_z_w_demo, 'sqeuclidean').min(axis=1)
@@ -608,6 +658,9 @@ def create_top3_score_video(video_paths, z_f_list, z_w_list, save_path, e2c_dir,
             
         metric = np.sum(np.abs(sf - sw))
         traj_metrics.append((metric, sf, sw, i))
+
+    if not traj_metrics:
+        return
 
     # Sort and pick top 3
     traj_metrics.sort(key=lambda x: x[0], reverse=True)
@@ -642,8 +695,11 @@ def create_top3_score_video(video_paths, z_f_list, z_w_list, save_path, e2c_dir,
         for t in range(min(T, len(frames))):
             vline.set_xdata([t, t])
             fig.canvas.draw()
-            plot_img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-            plot_img = plot_img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+            if hasattr(fig.canvas, 'buffer_rgba'):
+                plot_img = np.asarray(fig.canvas.buffer_rgba())[:, :, :3]
+            else:
+                plot_img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+                plot_img = plot_img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
             
             if plot_img.shape[1] != frames[t].shape[1]:
                 plot_img = cv2.resize(plot_img, (frames[t].shape[1], plot_img.shape[0]))
