@@ -966,6 +966,12 @@ def main(cfg: ResidualTD3DexmgConfig):
                 
         print("LaNERewardShaper initialized.")
 
+    # Re-seed right before the training loop starts
+    random.seed(cfg.seed)
+    np.random.seed(cfg.seed)
+    torch.manual_seed(cfg.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(cfg.seed)
     obs, _ = env.reset()
 
     global_step = start_step
