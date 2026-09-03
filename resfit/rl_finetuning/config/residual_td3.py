@@ -71,7 +71,7 @@ class ResidualTD3AlgoConfig(RLPDAlgoConfig):
     # ------------------------------------------------------------------
     stddev_max: float = 0.05
     stddev_min: float = 0.05
-    stddev_step: int = 300_000
+    stddev_step: int = 400_000
 
     # Progressive clipping schedule for the residual actions
     # I.e., starts clipping linearly from 0 to action scale over progressive_clipping_steps steps

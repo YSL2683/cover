@@ -143,7 +143,7 @@ class RLPDAlgoConfig:
     """RLPD hyper-parameters."""
 
     # Training ---------------------------------------------------------------
-    total_timesteps: int = 300_000
+    total_timesteps: int = 400_000
     batch_size: int = 256
     buffer_size: int = 200_000
     learning_starts: int = 10_000
@@ -216,7 +216,7 @@ class RLPDAlgoConfig:
     # ------------------------------------------------------------------
     stddev_max: float = 0.1
     stddev_min: float = 0.1
-    stddev_step: int = 300_000
+    stddev_step: int = 400_000
 
     stddev_schedule: str = field(init=False)
 
