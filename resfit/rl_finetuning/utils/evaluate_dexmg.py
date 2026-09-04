@@ -56,75 +56,132 @@ def run_dexmg_evaluation(
         step_idx: int,
         is_success: bool,
         q_value: float,
-        font=None,
     ) -> np.ndarray:
-        """Overlay evaluation metadata onto *frame* (H, W, C)."""
-
-        pil_img = Image.fromarray(frame)
-        draw = ImageDraw.Draw(pil_img)
-
-        if font is None:
-            from PIL import ImageFont
-            font = ImageFont.load_default(size=6)
-
-        # Status label ---------------------------------------------------
+        """Overlay crisp evaluation metadata onto *frame* (H, W, C)."""
+        import cv2
+        canvas = frame.copy()
+        h, w = canvas.shape[:2]
+        font_scale = max(0.35, h / 500.0)
+        thickness = 1 if h < 200 else 2
+        
         status_text = "SUCCESS" if is_success else "FAIL"
-        status_color = (0, 255, 0) if is_success else (255, 0, 0)
+        status_color = (40, 220, 40) if is_success else (220, 50, 50)
+        
+        lines = [
+            (f"Step {step_idx}", (255, 255, 255)),
+            (f"Q: {q_value:.2f}", (255, 255, 255)),
+            (status_text, status_color),
+            (f"Ep {episode_num}/{total_episodes}", (200, 200, 200)),
+        ]
+        y = int(22 * (h / 256.0))
+        dy = int(24 * (h / 256.0))
+        x = int(14 * (h / 256.0))
+        
+        for text, color in lines:
+            cv2.putText(canvas, text, (x + 1, y + 1), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 0, 0), thickness + 1, cv2.LINE_AA)
+            cv2.putText(canvas, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, font_scale, color, thickness, cv2.LINE_AA)
+            y += dy
+            
+        # Camera identifier tags if 2 cameras are present
+        if w >= int(2.5 * h):
+            cam_w = h
+            cv2.putText(canvas, 'MAIN CAM', (15, h - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 0, 0), 2, cv2.LINE_AA)
+            cv2.putText(canvas, 'MAIN CAM', (15, h - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (80, 220, 80), 1, cv2.LINE_AA)
+            cv2.putText(canvas, 'WRIST CAM', (cam_w + 15, h - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 0, 0), 2, cv2.LINE_AA)
+            cv2.putText(canvas, 'WRIST CAM', (cam_w + 15, h - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (80, 140, 255), 1, cv2.LINE_AA)
+            
+        return canvas
 
-        x = 0
-        y = 0
-        dy = 7
-        draw.text((x, y), f"Env {env_idx + 1}", fill=(0, 0, 0), font=font)
-        y += dy
-        draw.text((x, y), f"Episode {episode_num}/{total_episodes}", fill=(0, 0, 0), font=font)
-        y += dy
-        draw.text((x, y), f"Step {step_idx}", fill=(0, 0, 0), font=font)
-        y += dy
-        draw.text((x, y), status_text, fill=status_color, font=font)
-        y += dy
-        draw.text((x, y), f"Q = {q_value:.2f}", fill=(0, 0, 0), font=font)
+    def _render_2d_action_panel(base_a, res_a, tot_a, res_history=None, current_step=0, max_steps=120, target_h=256) -> np.ndarray:
+        """Render a crisp, fast (<0.3ms) 2D Action HUD with upper XY/Z indicators and lower residual sparkline."""
+        import cv2
+        w = target_h
+        canvas = np.full((target_h, w, 3), 250, dtype=np.uint8)
+        
+        # 1. Header & Color Legend
+        cv2.putText(canvas, 'ACTION HUD', (14, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (40, 40, 40), 2, cv2.LINE_AA)
+        cv2.putText(canvas, 'B', (145, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (50, 80, 220), 2, cv2.LINE_AA) # Blue
+        cv2.putText(canvas, 'R', (175, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (220, 50, 50), 2, cv2.LINE_AA) # Red
+        cv2.putText(canvas, 'T', (205, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (40, 160, 40), 2, cv2.LINE_AA) # Green
+        
+        # 2. Upper Half: XY Radar & Z Gauge
+        cx, cy = int(w * 0.28), int(target_h * 0.33)
+        radius = int(target_h * 0.18)
+        cv2.circle(canvas, (cx, cy), radius, (215, 215, 215), 1, cv2.LINE_AA)
+        cv2.circle(canvas, (cx, cy), radius // 2, (230, 230, 230), 1, cv2.LINE_AA)
+        cv2.line(canvas, (cx - radius, cy), (cx + radius, cy), (225, 225, 225), 1, cv2.LINE_AA)
+        cv2.line(canvas, (cx, cy - radius), (cx, cy + radius), (225, 225, 225), 1)
+        cv2.putText(canvas, 'XY', (14, 46), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (120, 120, 120), 1, cv2.LINE_AA)
+        
+        scale = radius * 0.95
+        # Base Arrow (Blue)
+        bx = int(cx + np.clip(base_a[0], -1, 1) * scale)
+        by = int(cy - np.clip(base_a[1], -1, 1) * scale)
+        cv2.arrowedLine(canvas, (cx, cy), (bx, by), (50, 80, 220), 2, tipLength=0.22)
+        
+        # Residual Arrow (Red) starting from Base arrow tip
+        rx = int(bx + np.clip(res_a[0], -1, 1) * scale)
+        ry = int(by - np.clip(res_a[1], -1, 1) * scale)
+        cv2.arrowedLine(canvas, (bx, by), (rx, ry), (220, 50, 50), 2, tipLength=0.22)
+        
+        # Total Arrow (Green) from origin
+        tx = int(cx + np.clip(tot_a[0], -1, 1) * scale)
+        ty = int(cy - np.clip(tot_a[1], -1, 1) * scale)
+        cv2.arrowedLine(canvas, (cx, cy), (tx, ty), (40, 160, 40), 2, tipLength=0.22)
+        
+        # Z Gauge
+        zx = int(w * 0.80)
+        zy_center = int(target_h * 0.33)
+        zh = int(target_h * 0.17)
+        cv2.line(canvas, (zx, zy_center - zh), (zx, zy_center + zh), (210, 210, 210), 1, cv2.LINE_AA)
+        cv2.line(canvas, (zx - 10, zy_center), (zx + 10, zy_center), (180, 180, 180), 1, cv2.LINE_AA)
+        cv2.putText(canvas, 'Z', (zx - 5, 46), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (120, 120, 120), 1, cv2.LINE_AA)
+        
+        b_z = int(np.clip(base_a[2], -1, 1) * zh)
+        r_z = int(np.clip(res_a[2], -1, 1) * zh)
+        t_z = int(np.clip(tot_a[2], -1, 1) * zh)
+        
+        cv2.line(canvas, (zx - 6, zy_center), (zx - 6, zy_center - b_z), (50, 80, 220), 3, cv2.LINE_AA)
+        cv2.line(canvas, (zx, zy_center), (zx, zy_center - r_z), (220, 50, 50), 3, cv2.LINE_AA)
+        cv2.line(canvas, (zx + 6, zy_center), (zx + 6, zy_center - t_z), (40, 160, 40), 3, cv2.LINE_AA)
+        
+        # Divider Line
+        div_y = int(target_h * 0.55)
+        cv2.line(canvas, (12, div_y), (w - 12, div_y), (220, 220, 220), 1, cv2.LINE_AA)
+        
+        # 3. Lower Half: Continuous Residual Action Tracking Plot
+        cur_res = float(np.linalg.norm(res_a[:3]))
+        cv2.putText(canvas, f'|res|: {cur_res:.3f}', (14, div_y + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (120, 40, 160), 1, cv2.LINE_AA)
+        cv2.putText(canvas, 'History', (w - 60, div_y + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (140, 140, 140), 1, cv2.LINE_AA)
+        
+        px0, py0 = 14, div_y + 30
+        pw, ph = w - 28, int(target_h * 0.28)
+        cv2.rectangle(canvas, (px0, py0), (px0 + pw, py0 + ph), (242, 242, 242), -1)
+        cv2.rectangle(canvas, (px0, py0), (px0 + pw, py0 + ph), (210, 210, 210), 1, cv2.LINE_AA)
+        cv2.line(canvas, (px0, py0 + ph // 2), (px0 + pw, py0 + ph // 2), (230, 230, 230), 1, cv2.LINE_AA)
+        cv2.line(canvas, (px0, py0 + ph // 4), (px0 + pw, py0 + ph // 4), (235, 235, 235), 1, cv2.LINE_AA)
+        cv2.line(canvas, (px0, py0 + 3 * ph // 4), (px0 + pw, py0 + 3 * ph // 4), (235, 235, 235), 1, cv2.LINE_AA)
+        
+        if res_history is not None and len(res_history) > 0:
+            max_val = max(0.2, float(np.max(res_history)) * 1.1)
+            points = []
+            for step_i in range(min(current_step + 1, len(res_history))):
+                val = res_history[step_i]
+                x = px0 + int((step_i / max(1, max_steps - 1)) * pw)
+                y = py0 + ph - int((val / max_val) * (ph - 6)) - 3
+                points.append((x, int(np.clip(y, py0 + 2, py0 + ph - 2))))
+                
+            pts = np.array(points, np.int32)
+            if len(points) >= 2:
+                cv2.polylines(canvas, [pts], isClosed=False, color=(140, 60, 180), thickness=2, lineType=cv2.LINE_AA)
+            if len(points) >= 1:
+                cv2.circle(canvas, points[-1], 4, (120, 30, 160), -1, cv2.LINE_AA)
+            cv2.putText(canvas, f'{max_val:.2f}', (px0 + 3, py0 + 11), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (150, 150, 150), 1, cv2.LINE_AA)
+            cv2.putText(canvas, '0', (px0 + 3, py0 + ph - 3), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (150, 150, 150), 1, cv2.LINE_AA)
+            
+        return canvas
 
-        return np.asarray(pil_img)
-
-    def _render_3d_action_vectors(base_a, res_a, tot_a, target_h) -> np.ndarray:
-        """Render a 3D quiver plot of the XYZ translation delta actions."""
-        fig = plt.figure(figsize=(4, 4))
-        # Use add_subplot with projection='3d'
-        ax = fig.add_subplot(111, projection='3d')
-        
-        # Actions are 7D. We only care about translation [x, y, z] for the 3D plot
-        # Normalization limit is typically 1.0
-        x, y, z = 0.0, 0.0, 0.0
-        
-        ax.quiver(x, y, z, base_a[0], base_a[1], base_a[2], color='blue', label='Base', arrow_length_ratio=0.15)
-        # Residual action starts from the tip of the base action
-        ax.quiver(base_a[0], base_a[1], base_a[2], res_a[0], res_a[1], res_a[2], color='red', label='Residual', arrow_length_ratio=0.15)
-        # Total action is the sum, starting from origin
-        ax.quiver(x, y, z, tot_a[0], tot_a[1], tot_a[2], color='green', label='Total', arrow_length_ratio=0.15)
-        
-        # Fixed limits so the camera doesn't jump around
-        lim = 1.0
-        ax.set_xlim([-lim, lim])
-        ax.set_ylim([-lim, lim])
-        ax.set_zlim([-lim, lim])
-        ax.set_xlabel('X')
-        ax.set_ylabel('Y')
-        ax.set_zlabel('Z')
-        ax.set_title("3D Delta Pose (XYZ)")
-        ax.legend(loc='upper left', fontsize='small')
-        
-        # Draw and convert to numpy array
-        fig.canvas.draw()
-        rgba = np.asarray(fig.canvas.buffer_rgba())
-        img = rgba[..., :3]  # Drop alpha channel
-        plt.close(fig)
-        
-        # Resize image to match the video frame's height exactly
-        pil_img = Image.fromarray(img)
-        aspect_ratio = pil_img.width / pil_img.height
-        new_w = int(target_h * aspect_ratio)
-        pil_img = pil_img.resize((new_w, target_h), Image.Resampling.LANCZOS)
-        return np.asarray(pil_img)
+    _render_3d_action_vectors = _render_2d_action_panel
 
     def _create_q_trajectory_plots(
         trajectories: list[list[float]],
@@ -218,6 +275,7 @@ def run_dexmg_evaluation(
     ep_z_w = [[] for _ in range(num_envs)] if lane_shaper is not None else None
     all_success_z_f = [] if lane_shaper is not None else None
     all_success_z_w = [] if lane_shaper is not None else None
+    all_success_res_a = [] if lane_shaper is not None else None
     
     # NEW: Cache for Top-3 adaptation videos
     import tempfile
@@ -333,6 +391,8 @@ def run_dexmg_evaluation(
                 if is_success and lane_shaper is not None:
                     all_success_z_f.append(ep_z_f[env_idx].copy())
                     all_success_z_w.append(ep_z_w[env_idx].copy())
+                    if res_act_buffer is not None and all_success_res_a is not None:
+                        all_success_res_a.append(res_act_buffer[env_idx].copy())
 
                 # Always track episode length for successful episodes logging
                 all_episode_lengths.append(len(ep_q_preds[env_idx]))
@@ -344,6 +404,11 @@ def run_dexmg_evaluation(
 
                     episode_global_idx = done_episodes + 1  # 1-based
 
+                    # Precompute residual magnitude history for the 2D HUD sparkline
+                    ep_res_acts = res_act_buffer[env_idx]
+                    ep_res_norms = [float(np.linalg.norm(a[:3])) for a in ep_res_acts] if len(ep_res_acts) > 0 else []
+                    max_ep_steps = len(episode_frames)
+
                     # Save to temp cache if successful
                     if is_success:
                         import os
@@ -351,13 +416,34 @@ def run_dexmg_evaluation(
                         # Annotate all frames for this episode to save
                         cached_frames = []
                         for step_idx, fr in enumerate(episode_frames):
-                            plot_img = _render_3d_action_vectors(
-                                base_act_buffer[env_idx][step_idx], res_act_buffer[env_idx][step_idx], tot_act_buffer[env_idx][step_idx], target_h=fr.shape[0]
+                            # Upscale camera frame preserving aspect ratio (supports 1, 2, or more cameras)
+                            h_orig, w_orig = fr.shape[:2]
+                            if h_orig < 256:
+                                scale = 256.0 / h_orig
+                                target_w = int(round(w_orig * scale))
+                                target_h = 256
+                                fr_up = cv2.resize(fr, (target_w, target_h), interpolation=cv2.INTER_NEAREST)
+                            else:
+                                fr_up = fr
+
+                            hud_img = _render_2d_action_panel(
+                                base_act_buffer[env_idx][step_idx],
+                                res_act_buffer[env_idx][step_idx],
+                                tot_act_buffer[env_idx][step_idx],
+                                res_history=ep_res_norms,
+                                current_step=step_idx,
+                                max_steps=max_ep_steps,
+                                target_h=fr_up.shape[0]
                             )
-                            combined_fr = np.concatenate([fr, plot_img], axis=1)
+                            combined_fr = np.concatenate([fr_up, hud_img], axis=1)
                             annotated_fr = _annotate_frame(
-                                combined_fr, env_idx=env_idx, episode_num=episode_global_idx, total_episodes=num_episodes,
-                                step_idx=step_idx + 1, is_success=is_success, q_value=episode_qs[step_idx]
+                                combined_fr,
+                                env_idx=env_idx,
+                                episode_num=episode_global_idx,
+                                total_episodes=num_episodes,
+                                step_idx=step_idx + 1,
+                                is_success=is_success,
+                                q_value=episode_qs[step_idx]
                             )
                             cached_frames.append(annotated_fr)
                         np.save(cache_path, np.array(cached_frames, dtype=np.uint8))
@@ -366,15 +452,26 @@ def run_dexmg_evaluation(
                     # Only save the first episode video to avoid huge files
                     if episode_global_idx == 1:
                         for step_idx, fr in enumerate(episode_frames):
-                            # Generate 3D plot image
-                            plot_img = _render_3d_action_vectors(
+                            # Upscale camera frame preserving aspect ratio (supports 1, 2, or more cameras)
+                            h_orig, w_orig = fr.shape[:2]
+                            if h_orig < 256:
+                                scale = 256.0 / h_orig
+                                target_w = int(round(w_orig * scale))
+                                target_h = 256
+                                fr_up = cv2.resize(fr, (target_w, target_h), interpolation=cv2.INTER_NEAREST)
+                            else:
+                                fr_up = fr
+
+                            hud_img = _render_2d_action_panel(
                                 base_act_buffer[env_idx][step_idx],
                                 res_act_buffer[env_idx][step_idx],
                                 tot_act_buffer[env_idx][step_idx],
-                                target_h=fr.shape[0]
+                                res_history=ep_res_norms,
+                                current_step=step_idx,
+                                max_steps=max_ep_steps,
+                                target_h=fr_up.shape[0]
                             )
-                            # Combine frame and plot side-by-side
-                            combined_fr = np.concatenate([fr, plot_img], axis=1)
+                            combined_fr = np.concatenate([fr_up, hud_img], axis=1)
 
                             annotated_fr = _annotate_frame(
                                 combined_fr,
@@ -538,7 +635,8 @@ def run_dexmg_evaluation(
                 top3_vid_path = latent_dir / top3_vid_name
                 create_top3_score_video(
                     success_video_paths, all_success_z_f, all_success_z_w, 
-                    str(top3_vid_path), e2c_dir, gamma_f, gamma_w, is_2squared
+                    str(top3_vid_path), e2c_dir, gamma_f, gamma_w, is_2squared,
+                    res_a_list=all_success_res_a
                 )
                 
                 if wandb.run is not None and top3_vid_path.exists():

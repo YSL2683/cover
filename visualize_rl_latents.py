@@ -617,7 +617,7 @@ def plot_representative_1d_scores(z_f_rl, z_w_rl, script_dir, save_path, step=No
 
 
 
-def create_top3_score_video(video_paths, z_f_list, z_w_list, save_path, e2c_dir, gamma_f, gamma_w, is_2squared):
+def create_top3_score_video(video_paths, z_f_list, z_w_list, save_path, e2c_dir, gamma_f, gamma_w, is_2squared, res_a_list=None):
     import os
     import cv2
     import torch
@@ -676,24 +676,28 @@ def create_top3_score_video(video_paths, z_f_list, z_w_list, save_path, e2c_dir,
         orig_w = frames[0].shape[1]
         dpi = orig_w / 10.0
 
-        fig, ax = plt.subplots(figsize=(10, 3), dpi=dpi)
+        fig, ax = plt.subplots(figsize=(10, 2.8), dpi=dpi)
+        fig.patch.set_facecolor('#fafafa')
         timesteps = np.arange(T)
-        ax.plot(timesteps, sf, label='S_main', color='#2ca02c', linewidth=2.5)
-        ax.plot(timesteps, sw, label='S_wrist', color='#d62728', linewidth=2.5)
-        ax.fill_between(timesteps, sf, sw, where=(sf >= sw), color='#2ca02c', alpha=0.2, interpolate=True)
-        ax.fill_between(timesteps, sf, sw, where=(sw > sf), color='#d62728', alpha=0.2, interpolate=True)
-
-        ax.set_title(f"Rank {rank+1} OOD Adaptation (Original Ep: {orig_idx+1})", fontsize=12)
+        ax.plot(timesteps, sf, label='S_main', color='#2ca02c', linewidth=2.2)
+        ax.plot(timesteps, sw, label='S_wrist', color='#d62728', linewidth=2.2)
+        ax.fill_between(timesteps, sf, sw, where=(sf >= sw), color='#2ca02c', alpha=0.18, interpolate=True)
+        ax.fill_between(timesteps, sf, sw, where=(sw > sf), color='#d62728', alpha=0.18, interpolate=True)
+        ax.set_title(f"Rank {rank+1} OOD Adaptation Progress (Original Ep: {orig_idx+1})", fontsize=12, pad=6)
         ax.set_ylim(-0.05, 1.05)
         ax.set_xlim(0, max(1, T-1))
-        ax.grid(True, alpha=0.3)
-        ax.legend(loc='upper right', fontsize=8)
-        
-        vline = ax.axvline(x=0, color='black', linestyle='--', linewidth=2)
-        fig.tight_layout()
+        ax.grid(True, alpha=0.25)
+        ax.legend(loc='upper right', fontsize=9, framealpha=0.8)
+        ax.set_ylabel('Similarity', fontsize=10)
+        ax.set_xlabel('Timestep', fontsize=10)
+        ax.tick_params(labelsize=9)
+        vline = ax.axvline(x=0, color='black', linestyle='--', linewidth=1.8)
+        fig.tight_layout(pad=0.7)
+        vlines = [vline]
 
         for t in range(min(T, len(frames))):
-            vline.set_xdata([t, t])
+            for vl in vlines:
+                vl.set_xdata([t, t])
             fig.canvas.draw()
             if hasattr(fig.canvas, 'buffer_rgba'):
                 plot_img = np.asarray(fig.canvas.buffer_rgba())[:, :, :3]
@@ -701,8 +705,12 @@ def create_top3_score_video(video_paths, z_f_list, z_w_list, save_path, e2c_dir,
                 plot_img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
                 plot_img = plot_img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
             
-            if plot_img.shape[1] != frames[t].shape[1]:
-                plot_img = cv2.resize(plot_img, (frames[t].shape[1], plot_img.shape[0]))
+            target_w = frames[t].shape[1]
+            total_h = frames[t].shape[0] + plot_img.shape[0]
+            rem = total_h % 16
+            target_plot_h = plot_img.shape[0] + ((16 - rem) if rem != 0 else 0)
+            if plot_img.shape[1] != target_w or plot_img.shape[0] != target_plot_h:
+                plot_img = cv2.resize(plot_img, (target_w, target_plot_h))
                 
             combined = np.concatenate([frames[t], plot_img], axis=0)
             writer.append_data(combined)
