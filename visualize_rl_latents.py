@@ -9,6 +9,7 @@ import torchvision.transforms as T
 import sys
 import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
+import cv2
 
 # Ensure resfit is in path
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
@@ -34,9 +35,11 @@ def get_dino_features(images, dino, device):
         top = (h - output_size) // 2
         left = (w - output_size) // 2
         cropped = images[:, :, top : top + output_size, left : left + output_size]
-    # If images are [0, 255], divide by 255. BasePolicyVecEnvWrapper provides [0, 1] float
-    if cropped.max() > 1.0:
+    # If images are [0, 255] or uint8, divide by 255. BasePolicyVecEnvWrapper provides [0, 1] float
+    if cropped.dtype == torch.uint8 or cropped.max() > 1.0:
         cropped = cropped.float() / 255.0
+    else:
+        cropped = cropped.float()
     normalize = T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     front = normalize(cropped[:, :3])
     wrist = normalize(cropped[:, 3:6])
