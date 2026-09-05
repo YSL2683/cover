@@ -276,12 +276,7 @@ def run_dexmg_evaluation(
     ep_z_w = [[] for _ in range(num_envs)] if lane_shaper is not None else None
     all_success_z_f = [] if lane_shaper is not None else None
     all_success_z_w = [] if lane_shaper is not None else None
-    all_success_res_a = [] if lane_shaper is not None else None
-    
-    # NEW: Cache for Top-3 adaptation videos
-    import tempfile
-    video_cache_dir = tempfile.mkdtemp(prefix="resfit_eval_")
-    success_video_paths = []
+    saved_success_video = False
 
     done_episodes = 0
     obs, _ = env.reset()
@@ -392,8 +387,6 @@ def run_dexmg_evaluation(
                 if is_success and lane_shaper is not None:
                     all_success_z_f.append(ep_z_f[env_idx].copy())
                     all_success_z_w.append(ep_z_w[env_idx].copy())
-                    if res_act_buffer is not None and all_success_res_a is not None:
-                        all_success_res_a.append(res_act_buffer[env_idx].copy())
 
                 # Always track episode length for successful episodes logging
                 all_episode_lengths.append(len(ep_q_preds[env_idx]))
@@ -410,48 +403,17 @@ def run_dexmg_evaluation(
                     ep_res_norms = [float(np.linalg.norm(a[:3])) for a in ep_res_acts] if len(ep_res_acts) > 0 else []
                     max_ep_steps = len(episode_frames)
 
-                    # Save to temp cache if successful
-                    if is_success:
-                        import os
-                        cache_path = os.path.join(video_cache_dir, f"success_{episode_global_idx}.npy")
-                        # Annotate all frames for this episode to save
-                        cached_frames = []
-                        for step_idx, fr in enumerate(episode_frames):
-                            # Upscale camera frame preserving aspect ratio (supports 1, 2, or more cameras)
-                            h_orig, w_orig = fr.shape[:2]
-                            if h_orig < 256:
-                                scale = 256.0 / h_orig
-                                target_w = int(round(w_orig * scale))
-                                target_h = 256
-                                fr_up = cv2.resize(fr, (target_w, target_h), interpolation=cv2.INTER_NEAREST)
-                            else:
-                                fr_up = fr
+                    # Save only 1 episode video (prefer first success, or fallback to episode 1) to minimize overhead
+                    should_save_video = False
+                    if not saved_success_video:
+                        if is_success:
+                            all_frames.clear()
+                            should_save_video = True
+                            saved_success_video = True
+                        elif episode_global_idx == 1:
+                            should_save_video = True
 
-                            hud_img = _render_2d_action_panel(
-                                base_act_buffer[env_idx][step_idx],
-                                res_act_buffer[env_idx][step_idx],
-                                tot_act_buffer[env_idx][step_idx],
-                                res_history=ep_res_norms,
-                                current_step=step_idx,
-                                max_steps=max_ep_steps,
-                                target_h=fr_up.shape[0]
-                            )
-                            combined_fr = np.concatenate([fr_up, hud_img], axis=1)
-                            annotated_fr = _annotate_frame(
-                                combined_fr,
-                                env_idx=env_idx,
-                                episode_num=episode_global_idx,
-                                total_episodes=num_episodes,
-                                step_idx=step_idx + 1,
-                                is_success=is_success,
-                                q_value=episode_qs[step_idx]
-                            )
-                            cached_frames.append(annotated_fr)
-                        np.save(cache_path, np.array(cached_frames, dtype=np.uint8))
-                        success_video_paths.append(cache_path)
-
-                    # Only save the first episode video to avoid huge files
-                    if episode_global_idx == 1:
+                    if should_save_video:
                         for step_idx, fr in enumerate(episode_frames):
                             # Upscale camera frame preserving aspect ratio (supports 1, 2, or more cameras)
                             h_orig, w_orig = fr.shape[:2]
@@ -588,7 +550,7 @@ def run_dexmg_evaluation(
         import sys, importlib
         if "visualize_rl_latents" in sys.modules:
             importlib.reload(sys.modules["visualize_rl_latents"])
-        from visualize_rl_latents import plot_eval_latents, plot_crossview_pca, plot_representative_1d_scores
+        from visualize_rl_latents import plot_eval_latents
         
         parent = Path(str(output_dir or "outputs")) / run_name.split("__")[0]
         latent_dir = parent / "latent"
@@ -597,76 +559,15 @@ def run_dexmg_evaluation(
         plot_name = f"eval_pca_{run_name}_step_{global_step if global_step is not None else 'NA'}.png"
         plot_path = latent_dir / plot_name
         
-        crossview_name = f"eval_pca_crossview_{run_name}_step_{global_step if global_step is not None else 'NA'}.png"
-        crossview_path = latent_dir / crossview_name
-        
-        scores_name = f"eval_1d_scores_{run_name}_step_{global_step if global_step is not None else 'NA'}.png"
-        scores_path = latent_dir / scores_name
-        
         project_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
         
-        # Extract exact gammas from lane_shaper
-        is_2squared = ("2squared" in lane_shaper.reward_type) if hasattr(lane_shaper, 'reward_type') else False
-        
-        if is_2squared:
-            gamma_f = lane_shaper.beta / (lane_shaper.ref_one_step_dist_main + 1e-8)
-            gamma_w = lane_shaper.beta / (lane_shaper.ref_one_step_dist_wrist + 1e-8)
-        else:
-            gamma_f = lane_shaper.beta / ((lane_shaper.ref_one_step_dist_main ** 2) + 1e-8)
-            gamma_w = lane_shaper.beta / ((lane_shaper.ref_one_step_dist_wrist ** 2) + 1e-8)
-            
-        # 1. Original Time-Gradient PCA
+        # Original Time-Gradient PCA
         try:
             plot_eval_latents(all_success_z_f, all_success_z_w, project_dir, str(plot_path), step=global_step, e2c_dir=e2c_dir)
+            if wandb.run is not None:
+                wandb.log({"eval/latent_pca": wandb.Image(str(plot_path))}, step=global_step)
         except Exception as e:
             print(f"[Warning] Failed to plot eval latents: {e}")
-        
-        # 2. Cross-View Similarity Mapped PCA
-        try:
-            plot_crossview_pca(all_success_z_f, all_success_z_w, project_dir, str(crossview_path), step=global_step, e2c_dir=e2c_dir, gamma_f=gamma_f, gamma_w=gamma_w, is_2squared=is_2squared)
-        except Exception as e:
-            print(f"[Warning] Failed to plot crossview PCA: {e}")
-        
-        
-        # Render Top 3 Adaptation Video
-        if save_video and len(success_video_paths) > 0:
-            try:
-                from visualize_rl_latents import create_top3_score_video
-                top3_vid_name = f"eval_score_plot_{run_name}_step_{global_step if global_step is not None else 'NA'}.mp4"
-                top3_vid_path = latent_dir / top3_vid_name
-                create_top3_score_video(
-                    success_video_paths, all_success_z_f, all_success_z_w, 
-                    str(top3_vid_path), e2c_dir, gamma_f, gamma_w, is_2squared,
-                    res_a_list=all_success_res_a
-                )
-                
-                if wandb.run is not None and top3_vid_path.exists():
-                    wandb.log({
-                        "eval/latent_pca": wandb.Image(str(plot_path)),
-                        "eval/latent_pca_crossview": wandb.Image(str(crossview_path)),
-                        "eval/video_score_plot": wandb.Video(str(top3_vid_path), format="mp4")
-                    }, step=global_step)
-            except Exception as e:
-                print(f"Failed to create top3 video: {e}")
-                if wandb.run is not None:
-                    wandb.log({
-                        "eval/latent_pca": wandb.Image(str(plot_path)),
-                        "eval/latent_pca_crossview": wandb.Image(str(crossview_path))
-                    }, step=global_step)
-        else:
-            if wandb.run is not None:
-                wandb.log({
-                    "eval/latent_pca": wandb.Image(str(plot_path)),
-                    "eval/latent_pca_crossview": wandb.Image(str(crossview_path))
-                }, step=global_step)
-                
-    # Cleanup temp files safely regardless of success
-    try:
-        import shutil
-        if 'video_cache_dir' in locals():
-            shutil.rmtree(video_cache_dir, ignore_errors=True)
-    except Exception:
-        pass
 
     # Restore training mode --------------------------------------------
     agent.train(True)
