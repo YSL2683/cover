@@ -94,5 +94,5 @@ python resfit/rl_finetuning/scripts/train_residual_td3.py \
     e2c_dir="${E2C_DIR}" \
     offline_data.name="${OFFLINE_DATA_DIR}" \
     eval_interval_every_steps=2000 \
-    torch_deterministic=true \
+    torch_deterministic=false \
     base_policy.diffusion_ddim_steps=20

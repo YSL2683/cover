@@ -231,15 +231,10 @@ def main(cfg: ResidualTD3DexmgConfig):
 
     # Enable performance optimizations
     if device.type == "cuda":
-        # ---------------------------------------------------------------------
-        # Deep Determinism Control
-        # ---------------------------------------------------------------------
-        is_deterministic = cfg.torch_deterministic
-        torch.backends.cudnn.deterministic = is_deterministic
-        torch.backends.cudnn.benchmark = not is_deterministic
-        torch.backends.cuda.matmul.allow_tf32 = not is_deterministic
-        torch.backends.cudnn.allow_tf32 = not is_deterministic
-        torch.use_deterministic_algorithms(is_deterministic, warn_only=True)
+        torch.backends.cudnn.benchmark = True
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        torch.backends.cudnn.deterministic = cfg.torch_deterministic
 
     # ---------------------------------------------------------------------
     # Load the behaviour-cloning policy that will serve as the "base" policy
@@ -479,7 +474,7 @@ def main(cfg: ResidualTD3DexmgConfig):
         storage=LazyMemmapStorage(max_size=cfg.algo.buffer_size, scratch_dir=_CACHE_ROOT / "online"),
         transform=MultiStepTransform(n_steps=cfg.algo.n_step, gamma=cfg.algo.gamma),
         pin_memory=True,
-        prefetch=0,  # Disable prefetching unconditionally for RL reproducibility
+        prefetch=cfg.algo.prefetch_batches,  # Restored prefetching for high-throughput training
         batch_size=online_batch_size,
     )
 
@@ -573,7 +568,7 @@ def main(cfg: ResidualTD3DexmgConfig):
         storage=LazyMemmapStorage(max_size=max_offline_transitions, scratch_dir=_CACHE_ROOT / "offline"),
         transform=MultiStepTransform(n_steps=cfg.algo.n_step, gamma=cfg.algo.gamma),
         pin_memory=True,
-        prefetch=0,  # Disable prefetching unconditionally for RL reproducibility
+        prefetch=cfg.algo.prefetch_batches,  # Restored prefetching for high-throughput training
         batch_size=max(offline_batch_size, 1),  # Ensure batch_size is at least 1
     )
 
