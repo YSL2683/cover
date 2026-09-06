@@ -5,18 +5,23 @@ import h5py
 import robosuite as suite
 from robosuite import load_controller_config
 from tqdm import tqdm
+import argparse
 
-import os
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+os.environ.setdefault("MUJOCO_GL", "egl")
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--num_demos", type=int, default=30, help="Number of demos to render")
+    args = parser.parse_args()
+
     hdf5_path = f"{PROJECT_ROOT}/lane/demo/robomimic_dataset/can/demo_v15.hdf5"
     
     # Target folder
-    num_demos = 0
     with h5py.File(hdf5_path, "r") as f:
-        num_demos = min(len(f["data"].keys()), 50)
+        total_demos = len(f["data"].keys())
+        num_demos = min(total_demos, args.num_demos)
         
     target_folder = f"{PROJECT_ROOT}/lane/demo/robomimic_can/{num_demos}"
     if not os.path.isdir(target_folder):
@@ -42,8 +47,8 @@ def main():
 
     f = h5py.File(hdf5_path, "r")
     demos = list(f["data"].keys())
-    # Sort demos numerically and slice first 50
-    demos = sorted(demos, key=lambda x: int(x.split("_")[1]))[:50]
+    # Sort demos numerically and slice first num_demos
+    demos = sorted(demos, key=lambda x: int(x.split("_")[1]))[:num_demos]
 
     obs_list = []
     next_obs_list = []
