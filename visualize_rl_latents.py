@@ -8,7 +8,10 @@ from omegaconf import OmegaConf
 import torchvision.transforms as T
 import sys
 import matplotlib.pyplot as plt
-from sklearn.manifold import TSNE
+try:
+    from sklearn.manifold import TSNE
+except ImportError:
+    TSNE = None
 import cv2
 
 # Ensure resfit is in path
