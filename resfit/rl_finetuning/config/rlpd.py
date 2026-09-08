@@ -267,6 +267,7 @@ class DisturbanceConfig:
 class VisualOodConfig:
     table_color: str = "default"
     cube_color: str = "default"
+    nut_color: str = "default"
 
 @dataclass
 class CameraOodConfig:

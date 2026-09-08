@@ -309,23 +309,6 @@ class RobosuiteGymWrapper:
 
     def _apply_env_modifiers(self):
         """Applies extensible OOD configurations to the underlying robosuite environment."""
-        # Add logic for SquareID evaluation (narrow bounds, random rotation)
-        if getattr(self, "original_env_name", None) == "SquareID":
-            try:
-                sampler = self.env.placement_initializer
-                if hasattr(sampler, "samplers"):
-                    samplers = sampler.samplers
-                    sampler = samplers.get("SquareNutSampler", samplers.get("ObjectSampler"))
-                    if sampler is None and len(samplers) > 0:
-                        sampler = list(samplers.values())[0]
-                
-                if sampler is not None:
-                    sampler.x_range = [-0.115, -0.11]
-                    sampler.y_range = [0.11, 0.115]
-                    logger.debug("Applied SquareID Position Bounds: x=[-0.115, -0.11], y=[0.11, 0.115]")
-            except Exception as e:
-                logger.warning(f"Failed to apply SquareID position modifiers: {e}")
-
         if getattr(self, "env_modifier_config", None) is None:
             return
 
@@ -334,7 +317,8 @@ class RobosuiteGymWrapper:
         if mode is None or mode == "none":
             return
             
-        if getattr(self.env_modifier_config, "ood_position", None) is not None:
+        # Position OOD Logic
+        if mode in ["ood_position", "position_ood", "all"]:
             try:
                 sampler = self.env.placement_initializer
                 if hasattr(sampler, "samplers"):
@@ -343,7 +327,7 @@ class RobosuiteGymWrapper:
                     if sampler is None and len(samplers) > 0:
                         sampler = list(samplers.values())[0]
                 
-                if sampler is not None:
+                if sampler is not None and getattr(self.env_modifier_config, "ood_position", None) is not None:
                     bounds = self.env_modifier_config.ood_position
                     sampler.x_range = list(bounds.x_bounds)
                     sampler.y_range = list(bounds.y_bounds)
@@ -352,7 +336,7 @@ class RobosuiteGymWrapper:
                 logger.warning(f"Failed to apply OOD position modifiers: {e}")
 
         # Visual OOD Logic
-        if mode == "visual_ood" or getattr(self.env_modifier_config, "visual_ood", None) is not None:
+        if mode in ["visual_ood", "object_ood", "all"] or getattr(self.env_modifier_config, "visual_ood", None) is not None:
             try:
                 visual_cfg = getattr(self.env_modifier_config, "visual_ood", None)
                 if visual_cfg is not None:
@@ -372,6 +356,15 @@ class RobosuiteGymWrapper:
                                 geom.attrib.pop("material", None)
                                 geom.set("rgba", "0 1 0 1")
                         logger.debug("Applied visual OOD cube_color=green")
+
+                    nut_color = getattr(visual_cfg, "nut_color", "default")
+                    if nut_color == "blue":
+                        for geom in self.env.model.root.findall(".//geom"):
+                            name = geom.get("name", "")
+                            if "squarenut" in name.lower() and "vis" in name.lower():
+                                geom.attrib.pop("material", None)
+                                geom.set("rgba", "0.0 0.55 1.0 1.0")
+                        logger.debug("Applied visual OOD nut_color=blue")
             except Exception as e:
                 logger.warning(f"Failed to apply visual OOD modifiers: {e}")
 

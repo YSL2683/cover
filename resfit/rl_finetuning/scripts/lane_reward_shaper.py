@@ -1181,6 +1181,58 @@ class LaNERewardShaper:
                 "lane/ref_one_step_dist_wrist": self.ref_one_step_dist_wrist
             }
 
+        elif self.reward_type in ["reward_similarity_potential", "reward_potential_only"]:
+            # -------------------------------------------------------------
+            # Direct Similarity Potential Reward WITHOUT PBRS Difference
+            # R_dense(s, a, s') = p_reward * Phi(s')
+            # -------------------------------------------------------------
+            Phi_next, S_main_next, S_wrist_next, min_dist_m_next, min_dist_w_next, rem_t_m_next, rem_t_w_next = self._compute_potential(batch["next", "dino"])
+            
+            r_dense = Phi_next * self.p_reward
+            
+            # Add dense similarity potential reward to batch
+            add_rew = torch.as_tensor(r_dense, device=self.device, dtype=torch.float32).view(batch["next", "reward"].shape)
+            batch["next", "reward"] += add_rew
+            
+            # Action regularization term
+            action_l2_penalty_mean = 0.0
+            Phi_curr_mean = 0.0
+            if self.action_l2_reg_weight > 0:
+                a_total = batch["action"]
+                a_base = batch["obs", "observation.base_action"]
+                a_res = a_total - a_base
+                action_l2 = (a_res ** 2).sum(dim=-1)
+                
+                # Compute potential/similarity at current state s_t (exact match with reward_pbrs_no_mask_nstep)
+                Phi_curr, S_main_curr, S_wrist_curr, min_dist_m_curr, min_dist_w_curr, rem_t_m_curr, rem_t_w_curr = self._compute_potential(batch["dino"])
+                Phi_curr_mean = Phi_curr.mean()
+                
+                S_joint = torch.as_tensor(S_main_curr * S_wrist_curr, device=self.device, dtype=torch.float32)
+                r_reg = self.action_l2_reg_weight * S_joint * action_l2
+                r_reg = r_reg.view(batch["next", "reward"].shape)
+                
+                batch["next", "reward"] -= r_reg
+                action_l2_penalty_mean = r_reg.mean().item()
+            return {
+                "lane/Phi_next_avg": Phi_next.mean(),
+                "lane/Phi_curr_avg": Phi_curr_mean,
+                "lane/Phi_next_hist": wandb.Histogram(Phi_next),
+                "lane/potential_dense_avg": r_dense.mean(),
+                "lane/potential_dense_min": r_dense.min(),
+                "lane/potential_dense_max": r_dense.max(),
+                "lane/potential_dense_hist": wandb.Histogram(r_dense),
+                "lane/S_main_next_avg": S_main_next.mean(),
+                "lane/S_main_next_hist": wandb.Histogram(S_main_next),
+                "lane/S_wrist_next_avg": S_wrist_next.mean(),
+                "lane/S_wrist_next_hist": wandb.Histogram(S_wrist_next),
+                "lane/min_dist_main_next_avg": min_dist_m_next.mean(),
+                "lane/min_dist_wrist_next_avg": min_dist_w_next.mean(),
+                "lane/rem_t_main_next_avg": rem_t_m_next.mean(),
+                "lane/rem_t_wrist_next_avg": rem_t_w_next.mean(),
+                "lane/action_l2_penalty": action_l2_penalty_mean,
+                "lane/ref_one_step_dist_main": self.ref_one_step_dist_main,
+                "lane/ref_one_step_dist_wrist": self.ref_one_step_dist_wrist
+            }
 
         elif self.reward_type == "reward_pbrs_no_step_penalty":
             # 0. Cancel base -1.0 step penalty
