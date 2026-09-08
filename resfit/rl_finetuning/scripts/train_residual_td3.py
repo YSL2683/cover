@@ -946,7 +946,7 @@ def main(cfg: ResidualTD3DexmgConfig):
             w_m=getattr(cfg.algo, "reward_w_m", 0.3),
             w_w=getattr(cfg.algo, "reward_w_w", 0.7),
             gamma=cfg.algo.gamma,
-            e2c_mode=getattr(cfg.algo, "e2c_mode", "decoupled"),
+            e2c_mode=getattr(cfg.algo, "e2c_mode", "unified" if "unified" in reward_type else "decoupled"),
             ref_horizon=getattr(cfg.algo, "ref_horizon", 30.0)
         )
         lane_shaper.precompute_offline_dino()
@@ -955,7 +955,7 @@ def main(cfg: ResidualTD3DexmgConfig):
         # Load pretrained E2C to avoid feature collapse
         e2c_dir = cfg.e2c_dir
         if e2c_dir and os.path.exists(e2c_dir):
-            e2c_mode = getattr(cfg.algo, "e2c_mode", "decoupled")
+            e2c_mode = getattr(cfg.algo, "e2c_mode", "unified" if "unified" in reward_type else "decoupled")
             if e2c_mode == "unified":
                 print(f"Loading pretrained E2C unified weights from {e2c_dir}...")
                 lane_shaper.e2c_unified.load_state_dict(torch.load(f"{e2c_dir}/e2c_unified.pt", map_location=device))

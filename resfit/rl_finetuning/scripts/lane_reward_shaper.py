@@ -26,7 +26,7 @@ class LaNERewardShaper:
         self.ref_horizon = ref_horizon
         self.offline_rb = offline_rb
         self.online_rb = online_rb
-        self.e2c_mode = e2c_mode
+        self.e2c_mode = "unified" if "unified" in reward_type else e2c_mode
         
         # Determine main camera key dynamically from offline buffer
         try:
@@ -278,12 +278,12 @@ class LaNERewardShaper:
                 self.z_demo_unified_cache[i] = z_u.unsqueeze(0).cpu().numpy() # keep old cache for safety
                 
                 T = z_u.shape[0]
-                rem_t = (T - torch.arange(T, device=self.device)) / T
+                rem_t = (T - torch.arange(T, device=self.device, dtype=torch.float32)) / T
                 flat_z_u_list.append(z_u)
                 flat_rem_t_u_list.append(rem_t)
                 
                 if T > 1:
-                    one_step_dist_list_unified.append(((z_u[1:] - z_u[:-1]) ** 2).sum(axis=1).mean().item())
+                    one_step_dist_list_unified.append(((z_u[1:] - z_u[:-1]) ** 2).sum(dim=1).mean().item())
             else:
                 dino_f, dino_w = dino_next_obs[:, :384], dino_next_obs[:, 384:]
                 
@@ -318,31 +318,23 @@ class LaNERewardShaper:
             
         self.initialized = True
     def _compute_potential_unified(self, dino_tensor):
-        z_pred_u = self.e2c_unified.enc(dino_tensor)[0].unsqueeze(1).detach().cpu().numpy()
+        """Computes the visual potential function Phi(s) for unified E2C on GPU."""
+        z_pred_u = self.e2c_unified.enc(dino_tensor)[0].detach() # [B, latent_dim]
         
-        N = len(dino_tensor)
-        min_dist_u = np.ones(N) * 10000
-        idx_u_best = np.zeros(N)
-        T_demos_u = np.zeros(N)
+        # Calculate explicit squared Euclidean distance on GPU
+        dist_u = torch.sum((z_pred_u.unsqueeze(1) - self.flat_z_u.unsqueeze(0)) ** 2, dim=2)
+        min_dist_u, min_idx_u = dist_u.min(dim=1)
+        rem_t_u = self.flat_rem_t_u[min_idx_u]
         
-        for i in range(len(self.demo_starts)):
-            z_demo_u = self.z_demo_unified_cache[i]
-            z_dist_u = ((z_demo_u - z_pred_u) ** 2).sum(axis=2)
-            z_dist_min_u = z_dist_u.min(axis=1)
-            update_min_u = z_dist_min_u < min_dist_u
-            min_dist_u[update_min_u] = z_dist_min_u[update_min_u]
-            idx_u_best[update_min_u] = z_dist_u.argmin(axis=1)[update_min_u]
-            T_demos_u[update_min_u] = z_dist_u.shape[1]
-            
         gamma_u = self.beta / ((self.ref_one_step_dist_unified ** 2) + 1e-8)
         
         # 4th power kernel
-        S_unified = np.exp(-gamma_u * (min_dist_u ** 2))
-        rem_t_u_norm = self.ref_horizon * (T_demos_u - idx_u_best) / np.maximum(T_demos_u, 1)
+        S_unified = torch.exp(-gamma_u * (min_dist_u ** 2))
+        rem_t_u_norm = self.ref_horizon * rem_t_u
         
-        Phi = np.power(self.alpha, rem_t_u_norm) * S_unified
+        Phi = S_unified * (self.alpha ** rem_t_u_norm)
         
-        return Phi, S_unified, min_dist_u, rem_t_u_norm
+        return Phi.cpu().numpy(), S_unified.cpu().numpy(), min_dist_u.cpu().numpy(), rem_t_u_norm.cpu().numpy()
 
     def _compute_potential(self, dino_tensor):
         """Computes the visual potential function Phi(s) for a batch of DINO embeddings."""
@@ -1516,6 +1508,61 @@ class LaNERewardShaper:
             add_rew = torch.as_tensor(r_dense, device=self.device, dtype=torch.float32).view(batch["next", "reward"].shape)
             batch["next", "reward"] += add_rew
             
+            action_l2_penalty_mean = 0.0
+            if self.action_l2_reg_weight > 0:
+                a_total = batch["action"]
+                a_base = batch["obs", "observation.base_action"]
+                a_res = a_total - a_base
+                action_l2 = (a_res ** 2).sum(dim=-1)
+                
+                S_joint = torch.as_tensor(S_unified_curr, device=self.device, dtype=torch.float32)
+                r_reg = self.action_l2_reg_weight * S_joint * action_l2
+                r_reg = r_reg.view(batch["next", "reward"].shape)
+                
+                batch["next", "reward"] -= r_reg
+                action_l2_penalty_mean = r_reg.mean().item()
+                
+            return {
+                "lane/Phi_next_avg": Phi_next.mean(),
+                "lane/Phi_curr_avg": Phi_curr.mean(),
+                "lane/Phi_next_hist": wandb.Histogram(Phi_next),
+                "lane/PBRS_dense_avg": r_dense.mean(),
+                "lane/PBRS_dense_min": r_dense.min(),
+                "lane/PBRS_dense_max": r_dense.max(),
+                "lane/PBRS_dense_hist": wandb.Histogram(r_dense),
+                "lane/S_unified_next_avg": S_unified_next.mean(),
+                "lane/S_unified_next_hist": wandb.Histogram(S_unified_next),
+                "lane/min_dist_unified_next_avg": min_dist_u_next.mean(),
+                "lane/rem_t_unified_next_avg": rem_t_u_next.mean(),
+                "lane/action_l2_penalty": action_l2_penalty_mean,
+                "lane/ref_one_step_dist_unified": self.ref_one_step_dist_unified
+            }
+
+        elif self.reward_type in ["reward_pbrs_unified_no_mask_nstep", "reward_pbrs_no_mask_nstep_unified"]:
+            # -------------------------------------------------------------
+            # Unified Potential-Based Reward Shaping WITHOUT Terminal Masking for N-Step Returns
+            # F(s, a, s_n) = gamma^n * Phi_u(s_n) - Phi_u(s)
+            # -------------------------------------------------------------
+            # 1. Compute Potential for s' (next state in n-step jump)
+            Phi_next, S_unified_next, min_dist_u_next, rem_t_u_next = self._compute_potential_unified(batch["next", "dino"])
+            
+            # 2. Compute Potential for s (current state)
+            Phi_curr, S_unified_curr, min_dist_u_curr, rem_t_u_curr = self._compute_potential_unified(batch["dino"])
+            
+            # 3. PBRS Difference (using batch["gamma"] which is gamma^n)
+            # NO terminal masking: Phi(s_{terminal}) is evaluated normally
+            if "gamma" in batch.keys():
+                gamma_env = batch["gamma"].squeeze().detach().cpu().numpy()
+            else:
+                gamma_env = self.gamma # fallback just in case
+            
+            r_dense = (gamma_env * Phi_next - Phi_curr) * self.p_reward
+            
+            # Add PBRS dense reward to batch
+            add_rew = torch.as_tensor(r_dense, device=self.device, dtype=torch.float32).view(batch["next", "reward"].shape)
+            batch["next", "reward"] += add_rew
+            
+            # 4. Action regularization term
             action_l2_penalty_mean = 0.0
             if self.action_l2_reg_weight > 0:
                 a_total = batch["action"]
