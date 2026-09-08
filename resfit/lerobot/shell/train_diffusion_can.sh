@@ -10,7 +10,7 @@ if [ -f "/home/moai/miniconda3/etc/profile.d/conda.sh" ]; then
 fi
 
 python resfit/lerobot/scripts/train_bc_dexmg.py \
-    --dataset ysl2683/robomimic_can_v15_30 \
+    --dataset ysl2683/robomimic_can_v15_10 \
     --policy diffusion \
     --policy_kwargs '{"crop_shape": [112, 112]}' \
     --steps 200000 \
