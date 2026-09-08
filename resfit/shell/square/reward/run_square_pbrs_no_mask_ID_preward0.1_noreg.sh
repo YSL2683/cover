@@ -62,7 +62,7 @@ echo "=================================================="
 
 # Environment variables & Isolated Cache Directory for Multi-Task Concurrency
 export PYTHONUNBUFFERED=1
-export PYTHONPATH=${PROJECT_ROOT}:$PYTHONPATH
+export PYTHONPATH=${PROJECT_ROOT}
 export HF_HUB_OFFLINE=1
 export LEROBOT_OFFLINE=1
 CURRENT_TIME=$(date +"%Y%m%d_%H%M%S")
@@ -72,7 +72,7 @@ export CACHE_DIR=${PROJECT_ROOT}/scratch/square_${CURRENT_TIME}
 mkdir -p ${CACHE_DIR}
 
 # Run training with task="SquareOOD" and wandb.project="square_residual_rl"
-python resfit/rl_finetuning/scripts/train_residual_td3.py \
+python3.10 resfit/rl_finetuning/scripts/train_residual_td3.py \
     env_modifier.mode=none \
     env_modifier.disturbance=null \
     task="${TASK}" \

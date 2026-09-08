@@ -3,14 +3,23 @@ PROJECT_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
 export CACHE_DIR=resfit/my_lerobot_data
 export PYTHONPATH=${PROJECT_ROOT}
 
-# Ensure conda environment 'cover' is activated
-if [ -f "/home/moai/miniconda3/etc/profile.d/conda.sh" ]; then
+# Ensure conda environment 'cover' is activated and in PATH
+if [ -d "/home/ysl2683/anaconda3/envs/cover/bin" ]; then
+    export PATH="/home/ysl2683/anaconda3/envs/cover/bin:${PATH}"
+fi
+if [ -f "/home/ysl2683/anaconda3/etc/profile.d/conda.sh" ]; then
+    source "/home/ysl2683/anaconda3/etc/profile.d/conda.sh"
+    conda activate cover
+elif [ -f "/home/moai/miniconda3/etc/profile.d/conda.sh" ]; then
     source "/home/moai/miniconda3/etc/profile.d/conda.sh"
     conda activate cover
 fi
 
+cd "${PROJECT_ROOT}"
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
 python resfit/lerobot/scripts/train_bc_dexmg.py \
-    --dataset ysl2683/robomimic_lift_v15_10 \
+    --dataset ysl2683/robomimic_lift_v15_5 \
     --policy diffusion \
     --policy_kwargs '{"crop_shape": [112, 112]}' \
     --steps 200000 \
@@ -20,7 +29,8 @@ python resfit/lerobot/scripts/train_bc_dexmg.py \
     --eval_env Lift \
     --eval_camera_size 128 \
     --eval_num_episodes 100 \
-    --eval_num_envs 16 \
-    --num_workers 8 \
+    --eval_num_envs 2 \
+    --num_workers 2 \
     --seed 42 \
     --wandb_enable --wandb_project train_diffusion_lift
+
