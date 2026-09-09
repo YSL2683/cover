@@ -834,6 +834,10 @@ class VectorizedEnvWrapper:
         return obs, info
 
     def step(self, actions):
+        if hasattr(actions, "detach"):
+            actions = actions.detach().cpu().numpy()
+        elif hasattr(actions, "cpu"):
+            actions = actions.cpu().numpy()
         obs, rewards, terminated, truncated, info = self.vec_env.step(actions)
         self._last_obs = obs
 
