@@ -332,8 +332,10 @@ def run_dexmg_evaluation(
             feat_f, feat_w = get_dino_features(obs_img, lane_shaper.dino, device)
             with torch.no_grad():
                 if hasattr(lane_shaper, 'e2c_unified') and lane_shaper.e2c_unified is not None:
-                    zf, _ = lane_shaper.e2c_unified.enc(feat_f)
-                    zw, _ = lane_shaper.e2c_unified.enc(feat_w)
+                    feat_u = torch.cat([feat_f, feat_w], dim=-1)
+                    zu, _ = lane_shaper.e2c_unified.enc(feat_u)
+                    zf = zu
+                    zw = zu
                 else:
                     zf, _ = lane_shaper.e2c_main.enc(feat_f)
                     zw, _ = lane_shaper.e2c_wrist.enc(feat_w)
@@ -565,9 +567,13 @@ def run_dexmg_evaluation(
         project_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
         
         # Extract exact gammas from lane_shaper
+        is_unified = (getattr(lane_shaper, 'e2c_mode', None) == "unified") or (hasattr(lane_shaper, 'e2c_unified') and lane_shaper.e2c_unified is not None)
         is_2squared = ("2squared" in lane_shaper.reward_type) if hasattr(lane_shaper, 'reward_type') else False
         
-        if is_2squared:
+        if is_unified:
+            ref_dist = getattr(lane_shaper, 'ref_one_step_dist_unified', 1.0)
+            gamma_f = gamma_w = lane_shaper.beta / ((ref_dist ** 2) + 1e-8)
+        elif is_2squared:
             gamma_f = lane_shaper.beta / (lane_shaper.ref_one_step_dist_main + 1e-8)
             gamma_w = lane_shaper.beta / (lane_shaper.ref_one_step_dist_wrist + 1e-8)
         else:
