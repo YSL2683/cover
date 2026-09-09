@@ -365,6 +365,105 @@ class RobosuiteGymWrapper:
                                 geom.attrib.pop("material", None)
                                 geom.set("rgba", "0.0 0.55 1.0 1.0")
                         logger.debug("Applied visual OOD nut_color=blue")
+                    elif nut_color in ["blue_checker", "checker"]:
+                        import xml.etree.ElementTree as ET
+                        root = self.env.model.root
+                        asset = root.find("asset")
+                        if asset is None:
+                            asset = ET.SubElement(root, "asset")
+
+                        tex = asset.find(".//texture[@name='nut_checker_blue']")
+                        if tex is None:
+                            tex = ET.SubElement(asset, "texture", {
+                                "name": "nut_checker_blue",
+                                "type": "cube",
+                                "builtin": "checker",
+                                "rgb1": "0.05 0.3 0.9",
+                                "rgb2": "0.85 0.95 1.0",
+                                "width": "300",
+                                "height": "300",
+                                "mark": "edge",
+                                "markrgb": "0.0 0.1 0.4",
+                            })
+
+                        mat = asset.find(".//material[@name='nut_checker_mat']")
+                        if mat is None:
+                            mat = ET.SubElement(asset, "material", {
+                                "name": "nut_checker_mat",
+                                "texture": "nut_checker_blue",
+                                "texrepeat": "4 4",
+                                "texuniform": "true",
+                                "reflectance": "0.1",
+                                "shininess": "0.5",
+                            })
+
+                        vis_count = 0
+                        for geom in root.findall(".//geom"):
+                            name = geom.get("name", "")
+                            if "squarenut" in name.lower() and "vis" in name.lower():
+                                geom.attrib.pop("rgba", None)
+                                geom.set("material", "nut_checker_mat")
+                                # Apply micro Z-stagger to completely eliminate coplanar Z-fighting at box seams
+                                pos = [float(x) for x in geom.get("pos", "0 0 0").split()]
+                                pos[2] += vis_count * 0.00005
+                                geom.set("pos", f"{pos[0]} {pos[1]} {pos[2]}")
+                                vis_count += 1
+                        logger.debug("Applied visual OOD nut_color=blue_checker (Z-fighting fixed)")
+                    elif nut_color in ["blue_cobblestone", "cobblestone"]:
+                        tex_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "assets", "textures", "nut_blue_cobblestone.png"))
+                        root = self.env.model.root
+
+                        for tex_elem in root.findall(".//texture"):
+                            if tex_elem.get("name") == "SquareNut_brass-metal":
+                                tex_elem.set("file", tex_path)
+
+                        for mat_elem in root.findall(".//material"):
+                            if mat_elem.get("name") == "SquareNut_bmetal":
+                                mat_elem.set("texrepeat", "4 4")
+                                mat_elem.set("shininess", "0.8")
+                                mat_elem.set("specular", "0.8")
+
+                        for geom in root.findall(".//geom"):
+                            name = geom.get("name", "")
+                            if "squarenut" in name.lower() and "vis" in name.lower():
+                                geom.attrib.pop("rgba", None)
+                                geom.set("material", "SquareNut_bmetal")
+                        logger.debug("Applied visual OOD nut_color=blue_cobblestone")
+                    elif nut_color in ["blue_camo", "camo"]:
+                        import xml.etree.ElementTree as ET
+                        root = self.env.model.root
+                        asset = root.find("asset")
+                        if asset is None:
+                            asset = ET.SubElement(root, "asset")
+
+                        camo_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "assets", "textures", "nut_camo_blue.png"))
+                        tex = asset.find(".//texture[@name='nut_camo_blue']")
+                        if tex is None:
+                            tex = ET.SubElement(asset, "texture", {
+                                "name": "nut_camo_blue",
+                                "type": "cube",
+                                "file": camo_path,
+                            })
+
+                        mat = asset.find(".//material[@name='nut_camo_mat']")
+                        if mat is None:
+                            mat = ET.SubElement(asset, "material", {
+                                "name": "nut_camo_mat",
+                                "texture": "nut_camo_blue",
+                                "texrepeat": "2 2",
+                                "texuniform": "true",
+                                "reflectance": "0.1",
+                                "shininess": "0.5",
+                            })
+
+                        for geom in root.findall(".//geom"):
+                            name = geom.get("name", "")
+                            if "squarenut" in name.lower() and "vis" in name.lower():
+                                geom.attrib.pop("rgba", None)
+                                geom.set("material", "nut_camo_mat")
+                        logger.debug("Applied visual OOD nut_color=blue_camo")
+                    else:
+                        logger.warning(f"Unknown visual OOD nut_color '{nut_color}', default texture retained.")
             except Exception as e:
                 logger.warning(f"Failed to apply visual OOD modifiers: {e}")
 
