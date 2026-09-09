@@ -1,16 +1,16 @@
 #!/bin/bash
 PROJECT_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)
-# Script to run Residual TD3 with Potential-Based Reward Shaping WITHOUT Terminal Masking (nstep)
+# Script to run Residual TD3 (ResFiT Baseline) WITHOUT Additional Reward Shaping (Reward None)
 # Environment: Square Position OOD (ID span + R_nut (4.375cm total per axis): X: [-0.136875, -0.088125], Y: [0.088125, 0.246875])
 # Note: Uses task-isolated CACHE_DIR to support concurrent multi-task Residual RL training.
 
 # Default parameters
-REWARD_TYPE="reward_pbrs_no_mask_nstep"
+REWARD_TYPE="none"
 BETA=1.0
 ALPHA=0.98
-W_M=0.3
-W_W=0.7
-P_REWARD=0.1  # Scaling factor for PBRS difference magnitude (Reduced for signal-to-noise ratio)
+W_M=0.0
+W_W=0.0
+P_REWARD=0.0  # Set to 0.0 as no additional reward shaping is used
 SEED=42
 FREEZE_E2C="True"
 TASK="Square"
@@ -24,9 +24,10 @@ OFFLINE_DATA_DIR="${PROJECT_ROOT}/resfit/my_lerobot_data/ysl2683/robomimic_squar
 
 # Name for Weights & Biases
 WANDB_PROJECT="square_residual_rl"
-WANDB_NAME="${TASK}_position_ood_4.875x15.875_${REWARD_TYPE}"
+WANDB_NAME="${TASK}_position_ood_4.875x15.875_resfit"
 
 # Parse command line arguments
+CUSTOM_WANDB_NAME=""
 while [[ "$#" -gt 0 ]]; do
     case $1 in
         --reward_type) REWARD_TYPE="$2"; shift ;;
@@ -36,18 +37,24 @@ while [[ "$#" -gt 0 ]]; do
         --w_w) W_W="$2"; shift ;;
         --p_reward) P_REWARD="$2"; shift ;;
         --seed) SEED="$2"; shift ;;
-        --wandb_name) WANDB_NAME="$2"; shift ;;
+        --wandb_project) WANDB_PROJECT="$2"; shift ;;
+        --wandb_name) CUSTOM_WANDB_NAME="$2"; shift ;;
         --freeze_e2c) FREEZE_E2C="$2"; shift ;;
         --base_policy_path) BASE_POLICY_PATH="$2"; shift ;;
         --e2c_dir) E2C_DIR="$2"; shift ;;
+        --offline_data_dir) OFFLINE_DATA_DIR="$2"; shift ;;
         --ddim_steps) DDIM_STEPS="$2"; shift ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
     esac
     shift
 done
 
+if [ -n "$CUSTOM_WANDB_NAME" ]; then
+    WANDB_NAME="$CUSTOM_WANDB_NAME"
+fi
+
 echo "=================================================="
-echo "Starting Residual TD3 Training for Square Position OOD"
+echo "Starting Residual TD3 Training for Square Position OOD (ResFiT Baseline: Reward None)"
 echo "Target Task     : $TASK (Position OOD: X[-0.136875, -0.088125], Y[0.088125, 0.246875])"
 echo "Reward Type     : $REWARD_TYPE"
 echo "Reward Scale    : $P_REWARD"
@@ -61,6 +68,7 @@ echo "WandB Project   : $WANDB_PROJECT"
 echo "WandB Name      : $WANDB_NAME"
 echo "Base Policy Path: $BASE_POLICY_PATH"
 echo "E2C Dir         : $E2C_DIR"
+echo "Offline Data Dir: $OFFLINE_DATA_DIR"
 echo "DDIM Steps      : $DDIM_STEPS"
 echo "=================================================="
 
@@ -77,7 +85,7 @@ export HF_HUB_OFFLINE=1
 export LEROBOT_OFFLINE=1
 export PYTHONHASHSEED=0
 CURRENT_TIME=$(date +"%Y%m%d_%H%M%S")
-export CACHE_DIR=${PROJECT_ROOT}/scratch/square_pos_ood_${CURRENT_TIME}
+export CACHE_DIR=${PROJECT_ROOT}/scratch/square_pos_ood_resfit_${CURRENT_TIME}
 
 # Clear isolated scratch memory buffers for this task only
 mkdir -p ${CACHE_DIR}

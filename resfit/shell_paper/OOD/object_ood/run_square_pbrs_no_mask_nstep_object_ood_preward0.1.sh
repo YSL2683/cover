@@ -16,6 +16,7 @@ FREEZE_E2C="True"
 TASK="Square"
 RES_ACTION_REG=0.00005  # Regularization for residual action magnitude
 NUT_COLOR="blue_checker"
+DDIM_STEPS=20
 
 # Base policy path (pointing to policy in resfit/my_lerobot_data)
 BASE_POLICY_PATH="${PROJECT_ROOT}/resfit/my_lerobot_data/bc_run_2026-08-29_14-38-11_robomimic_square_v15_50_diffusion/policy_step_66000/policy"
@@ -41,6 +42,7 @@ while [[ "$#" -gt 0 ]]; do
         --base_policy_path) BASE_POLICY_PATH="$2"; shift ;;
         --e2c_dir) E2C_DIR="$2"; shift ;;
         --nut_color) NUT_COLOR="$2"; shift ;;
+        --ddim_steps) DDIM_STEPS="$2"; shift ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
     esac
     shift
@@ -61,6 +63,7 @@ echo "WandB Project   : $WANDB_PROJECT"
 echo "WandB Name      : $WANDB_NAME"
 echo "Base Policy Path: $BASE_POLICY_PATH"
 echo "E2C Dir         : $E2C_DIR"
+echo "DDIM Steps      : $DDIM_STEPS"
 echo "=================================================="
 
 # Ensure conda environment 'cover' is activated
@@ -103,4 +106,5 @@ python resfit/rl_finetuning/scripts/train_residual_td3.py \
     e2c_dir="${E2C_DIR}" \
     offline_data.name="${OFFLINE_DATA_DIR}" \
     eval_interval_every_steps=2000 \
-    torch_deterministic=false
+    torch_deterministic=false \
+    base_policy.diffusion_ddim_steps="${DDIM_STEPS}"
