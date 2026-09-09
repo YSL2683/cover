@@ -67,6 +67,15 @@ except RuntimeError:
     # Start method already set, which is fine
     pass
 
+try:
+    import ctypes
+    libc = ctypes.CDLL("libc.so.6")
+    PR_SET_PTRACER = 0x59616d61
+    PR_SET_PTRACER_ANY = -1
+    libc.prctl(PR_SET_PTRACER, ctypes.c_ulong(PR_SET_PTRACER_ANY), 0, 0, 0)
+except Exception:
+    pass
+
 # -----------------------------------------------------------------------------
 # Caching configuration ------------------------------------------------------
 # -----------------------------------------------------------------------------

@@ -838,6 +838,15 @@ class VectorizedEnvWrapper:
             actions = actions.detach().cpu().numpy()
         elif hasattr(actions, "cpu"):
             actions = actions.cpu().numpy()
+=======
+        if isinstance(actions, torch.Tensor):
+            actions = actions.detach().cpu().numpy()
+        elif isinstance(actions, (list, tuple)) and len(actions) > 0 and isinstance(actions[0], torch.Tensor):
+            actions = np.stack([a.detach().cpu().numpy() for a in actions])
+        elif isinstance(actions, (list, tuple)) and len(actions) > 0 and isinstance(actions[0], np.ndarray):
+            actions = np.stack(actions)
+
+>>>>>>> origin/main
         obs, rewards, terminated, truncated, info = self.vec_env.step(actions)
         self._last_obs = obs
 

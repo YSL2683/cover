@@ -6,6 +6,8 @@ export PYTHONPATH=${PROJECT_ROOT}
 # Ensure conda environment 'cover' is activated and in PATH
 if [ -d "/home/ysl2683/anaconda3/envs/cover/bin" ]; then
     export PATH="/home/ysl2683/anaconda3/envs/cover/bin:${PATH}"
+elif [ -d "/home/moai/miniconda3/envs/cover/bin" ]; then
+    export PATH="/home/moai/miniconda3/envs/cover/bin:${PATH}"
 fi
 if [ -f "/home/ysl2683/anaconda3/etc/profile.d/conda.sh" ]; then
     source "/home/ysl2683/anaconda3/etc/profile.d/conda.sh"
@@ -24,8 +26,8 @@ python resfit/lerobot/scripts/train_bc_dexmg.py \
     --policy_kwargs '{"crop_shape": [112, 112]}' \
     --steps 200000 \
     --batch_size 256 \
-    --rollout_freq 1000 \
-    --save_freq 1000 \
+    --rollout_freq 100 \
+    --save_freq 100 \
     --eval_env Lift \
     --eval_camera_size 128 \
     --eval_num_episodes 100 \

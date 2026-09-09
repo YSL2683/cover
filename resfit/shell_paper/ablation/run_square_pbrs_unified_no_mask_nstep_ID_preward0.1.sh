@@ -1,11 +1,11 @@
 #!/bin/bash
-PROJECT_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)
-# Script to run Residual TD3 with Potential-Based Reward Shaping WITHOUT Terminal Masking (nstep)
-# Environment: Square Object (Visual) OOD (Nut Color: Blue [0.0, 0.55, 1.0, 1.0])
+PROJECT_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
+# Script to run Residual TD3 with Potential-Based Reward Shaping WITHOUT Terminal Masking (Unified Latent Space Ablation)
 # Note: Uses task-isolated CACHE_DIR to support concurrent multi-task Residual RL training.
 
 # Default parameters
-REWARD_TYPE="reward_pbrs_no_mask_nstep"
+REWARD_TYPE="reward_pbrs_unified_no_mask_nstep"
+E2C_MODE="unified"
 BETA=1.0
 ALPHA=0.98
 W_M=0.3
@@ -15,21 +15,21 @@ SEED=42
 FREEZE_E2C="True"
 TASK="Square"
 RES_ACTION_REG=0.00005  # Regularization for residual action magnitude
-NUT_COLOR="blue_checker"
 
 # Base policy path (pointing to policy in resfit/my_lerobot_data)
 BASE_POLICY_PATH="${PROJECT_ROOT}/resfit/my_lerobot_data/bc_run_2026-08-29_14-38-11_robomimic_square_v15_50_diffusion/policy_step_66000/policy"
-E2C_DIR="${PROJECT_ROOT}/lane/pretrained_e2c/square"
+E2C_DIR="${PROJECT_ROOT}/lane/pretrained_e2c_unified/square"
 OFFLINE_DATA_DIR="${PROJECT_ROOT}/resfit/my_lerobot_data/ysl2683/robomimic_square_v15_50"
 
 # Name for Weights & Biases
 WANDB_PROJECT="square_residual_rl"
-WANDB_NAME="${TASK}_object_ood_${REWARD_TYPE}_beta${BETA}_scale${P_REWARD}"
+WANDB_NAME="${TASK}_${REWARD_TYPE}_beta${BETA}_scale${P_REWARD}"
 
 # Parse command line arguments
 while [[ "$#" -gt 0 ]]; do
     case $1 in
         --reward_type) REWARD_TYPE="$2"; shift ;;
+        --e2c_mode) E2C_MODE="$2"; shift ;;
         --beta) BETA="$2"; shift ;;
         --alpha) ALPHA="$2"; shift ;;
         --w_m) W_M="$2"; shift ;;
@@ -40,21 +40,19 @@ while [[ "$#" -gt 0 ]]; do
         --freeze_e2c) FREEZE_E2C="$2"; shift ;;
         --base_policy_path) BASE_POLICY_PATH="$2"; shift ;;
         --e2c_dir) E2C_DIR="$2"; shift ;;
-        --nut_color) NUT_COLOR="$2"; shift ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
     esac
     shift
 done
 
 echo "=================================================="
-echo "Starting Residual TD3 Training for Square Object OOD"
-echo "Target Task     : $TASK (Object OOD: Nut Color = $NUT_COLOR)"
+echo "Starting Residual TD3 Training for Square with Unified V-PBRS (No Terminal Masking)"
+echo "Target Task     : $TASK (In-Distribution Position & Orientation)"
 echo "Reward Type     : $REWARD_TYPE"
+echo "E2C Mode        : $E2C_MODE"
 echo "Reward Scale    : $P_REWARD"
 echo "Beta            : $BETA"
 echo "Alpha           : $ALPHA"
-echo "Main Weight     : $W_M"
-echo "Wrist Weight    : $W_W"
 echo "Seed            : $SEED"
 echo "Freeze E2C      : $FREEZE_E2C"
 echo "WandB Project   : $WANDB_PROJECT"
@@ -76,15 +74,14 @@ export HF_HUB_OFFLINE=1
 export LEROBOT_OFFLINE=1
 export PYTHONHASHSEED=0
 CURRENT_TIME=$(date +"%Y%m%d_%H%M%S")
-export CACHE_DIR=${PROJECT_ROOT}/scratch/square_obj_ood_${CURRENT_TIME}
+export CACHE_DIR=${PROJECT_ROOT}/scratch/square_unified_${CURRENT_TIME}
 
 # Clear isolated scratch memory buffers for this task only
 mkdir -p ${CACHE_DIR}
 
 # Run training
 python resfit/rl_finetuning/scripts/train_residual_td3.py \
-    env_modifier.mode=visual_ood \
-    env_modifier.visual_ood.nut_color="${NUT_COLOR}" \
+    env_modifier.mode=none \
     env_modifier.disturbance=null \
     task="${TASK}" \
     rl_camera="['observation.images.agentview','observation.images.robot0_eye_in_hand']" \
@@ -92,6 +89,7 @@ python resfit/rl_finetuning/scripts/train_residual_td3.py \
     wandb.name="${WANDB_NAME}" \
     seed="${SEED}" \
     algo.reward_type="${REWARD_TYPE}" \
+    algo.e2c_mode="${E2C_MODE}" \
     algo.reward_beta="${BETA}" \
     algo.reward_alpha="${ALPHA}" \
     algo.reward_w_m="${W_M}" \
