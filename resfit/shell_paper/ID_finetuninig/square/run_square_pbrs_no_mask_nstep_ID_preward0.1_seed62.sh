@@ -1,6 +1,6 @@
 #!/bin/bash
 PROJECT_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)
-# Script to run Residual TD3 with Potential-Based Reward Shaping WITHOUT Terminal Masking for Square (Seed 52)
+# Script to run Residual TD3 with Potential-Based Reward Shaping WITHOUT Terminal Masking for Square (Seed 62)
 # Note: Uses task-isolated CACHE_DIR to support concurrent multi-task Residual RL training.
 
 # Default parameters
@@ -53,7 +53,7 @@ if [ -n "$CUSTOM_WANDB_NAME" ]; then
 fi
 
 echo "=================================================="
-echo "Starting Residual TD3 Training for Square with V-PBRS (No Terminal Masking, Seed 52)"
+echo "Starting Residual TD3 Training for Square with V-PBRS (No Terminal Masking, Seed 62)"
 echo "Target Task     : $TASK (In-Distribution Position & Orientation)"
 echo "Reward Type     : $REWARD_TYPE"
 echo "Reward Scale    : $P_REWARD"
@@ -84,7 +84,7 @@ export HF_HUB_OFFLINE=1
 export LEROBOT_OFFLINE=1
 export PYTHONHASHSEED=0
 CURRENT_TIME=$(date +"%Y%m%d_%H%M%S")
-export CACHE_DIR=${PROJECT_ROOT}/scratch/square_seed52_${CURRENT_TIME}
+export CACHE_DIR=${PROJECT_ROOT}/scratch/square_${CURRENT_TIME}
 
 # Clear isolated scratch memory buffers for this task only
 mkdir -p ${CACHE_DIR}

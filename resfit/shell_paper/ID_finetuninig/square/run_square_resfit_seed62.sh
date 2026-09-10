@@ -1,29 +1,35 @@
 #!/bin/bash
-PROJECT_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)
-# Script to run Residual TD3 with Potential-Based Reward Shaping WITHOUT Terminal Masking for Square (Seed 52)
+# Robust PROJECT_ROOT detection
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+PROJECT_ROOT=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)
+if [ -z "$PROJECT_ROOT" ]; then
+    PROJECT_ROOT=$(cd "$SCRIPT_DIR" && while [ ! -d "resfit" ] && [ "$PWD" != "/" ]; do cd ..; done; pwd)
+fi
+
+# Script to run Residual TD3 (ResFiT Baseline) WITHOUT Additional Reward Shaping (Reward None) for Square
 # Note: Uses task-isolated CACHE_DIR to support concurrent multi-task Residual RL training.
 
 # Default parameters
-REWARD_TYPE="reward_pbrs_no_mask_nstep"
+REWARD_TYPE="none"
 BETA=1.0
 ALPHA=0.98
-W_M=0.3
-W_W=0.7
-P_REWARD=0.1  # Scaling factor for PBRS difference magnitude (Reduced for signal-to-noise ratio)
-SEED=52
+W_M=0.0
+W_W=0.0
+P_REWARD=0.0  # Set to 0.0 as no additional reward shaping is used
+SEED=62
 FREEZE_E2C="True"
 TASK="Square"
-RES_ACTION_REG=0.00005  # Regularization for residual action magnitude
+RES_ACTION_REG=0.0  # Regularization for residual action magnitude
 DDIM_STEPS=20
 
-# Base policy path (pointing to policy in resfit/my_lerobot_data)
+# Base policy path (placeholder pointing to policy in resfit/my_lerobot_data)
 BASE_POLICY_PATH="${PROJECT_ROOT}/resfit/my_lerobot_data/bc_run_2026-08-29_14-38-11_robomimic_square_v15_50_diffusion/policy_step_66000/policy"
 E2C_DIR="${PROJECT_ROOT}/lane/pretrained_e2c/square"
 OFFLINE_DATA_DIR="${PROJECT_ROOT}/resfit/my_lerobot_data/ysl2683/robomimic_square_v15_50"
 
 # Name for Weights & Biases
 WANDB_PROJECT="square_residual_rl"
-WANDB_NAME="${TASK}_${REWARD_TYPE}_beta${BETA}_scale${P_REWARD}_seed${SEED}"
+WANDB_NAME="${TASK}_ID_resfit_seed${SEED}"
 
 # Parse command line arguments
 CUSTOM_WANDB_NAME=""
@@ -50,12 +56,14 @@ done
 
 if [ -n "$CUSTOM_WANDB_NAME" ]; then
     WANDB_NAME="$CUSTOM_WANDB_NAME"
+else
+    WANDB_NAME="${TASK}_ID_resfit_seed${SEED}"
 fi
 
 echo "=================================================="
-echo "Starting Residual TD3 Training for Square with V-PBRS (No Terminal Masking, Seed 52)"
+echo "Starting Residual TD3 (ResFiT) Training for Square WITHOUT Additional Reward"
 echo "Target Task     : $TASK (In-Distribution Position & Orientation)"
-echo "Reward Type     : $REWARD_TYPE"
+echo "Reward Type     : $REWARD_TYPE (No additional reward shaping)"
 echo "Reward Scale    : $P_REWARD"
 echo "Beta            : $BETA"
 echo "Alpha           : $ALPHA"
@@ -72,25 +80,33 @@ echo "DDIM Steps      : $DDIM_STEPS"
 echo "=================================================="
 
 # Ensure conda environment 'cover' is activated
-if [ -f "/home/moai/miniconda3/etc/profile.d/conda.sh" ]; then
+if [ -d "/home/ysl2683/anaconda3/envs/cover/bin" ]; then
+    export PATH="/home/ysl2683/anaconda3/envs/cover/bin:${PATH}"
+elif [ -d "/home/moai/miniconda3/envs/cover/bin" ]; then
+    export PATH="/home/moai/miniconda3/envs/cover/bin:${PATH}"
+fi
+if [ -f "/home/ysl2683/anaconda3/etc/profile.d/conda.sh" ]; then
+    source "/home/ysl2683/anaconda3/etc/profile.d/conda.sh"
+    conda activate cover
+elif [ -f "/home/moai/miniconda3/etc/profile.d/conda.sh" ]; then
     source "/home/moai/miniconda3/etc/profile.d/conda.sh"
     conda activate cover
 fi
 
 # Environment variables & Isolated Cache Directory for Multi-Task Concurrency
 export PYTHONUNBUFFERED=1
-export PYTHONPATH=${PROJECT_ROOT}:$PYTHONPATH
+export PYTHONPATH=${PROJECT_ROOT}
 export HF_HUB_OFFLINE=1
 export LEROBOT_OFFLINE=1
 export PYTHONHASHSEED=0
 CURRENT_TIME=$(date +"%Y%m%d_%H%M%S")
-export CACHE_DIR=${PROJECT_ROOT}/scratch/square_${CURRENT_TIME}
+export CACHE_DIR=${PROJECT_ROOT}/scratch/square_resfit_${CURRENT_TIME}
 
 # Clear isolated scratch memory buffers for this task only
 mkdir -p ${CACHE_DIR}
 
 # Run training with task="Square" and wandb.project="square_residual_rl"
-python resfit/rl_finetuning/scripts/train_residual_td3.py \
+python3.10 resfit/rl_finetuning/scripts/train_residual_td3.py \
     env_modifier.mode=none \
     env_modifier.disturbance=null \
     task="${TASK}" \
