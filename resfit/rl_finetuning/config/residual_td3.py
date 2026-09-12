@@ -24,6 +24,9 @@ class OfflineDataConfig:
     # Normalization safeguards
     min_action_range: float = 1e-1  # Minimum range for any action dimension to prevent normalization blow-up
     min_state_std: float = 1e-1  # Minimum std for any state dimension to prevent normalization blow-up
+    # Precomputed offline replay buffer path or custom root directory
+    buffer_path: str | None = None  # Explicit path to a precomputed replay buffer (dumped via dumps)
+    cache_dir: str | None = None  # Custom root directory for offline buffer caches (defaults to PROJECT_ROOT/scratch/offline_buffers)
 
 
 @dataclass

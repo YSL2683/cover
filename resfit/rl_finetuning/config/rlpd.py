@@ -234,6 +234,8 @@ class OfflineDataConfig:
     name: str = "ankile/robomimic-mh-can-image"
     num_episodes: int | None = 300
     image_key: str | None = None
+    buffer_path: str | None = None
+    cache_dir: str | None = None
 
 
 @dataclass

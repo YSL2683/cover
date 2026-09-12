@@ -132,16 +132,22 @@ if ONLINE_HF_REPO is not None:
     logger.info(f"Using online buffer from {ONLINE_HF_REPO}")
 
 # Generic environment variable (shared across algorithms) -------------------
-# ``CACHE_DIR`` specifies the root folder for **all** local caches.
+# ``CACHE_DIR`` specifies the root folder for run-specific local caches (online buffer, temp scratch).
 # Falls back to the current directory if unset.
 _CACHE_ROOT = Path(os.environ.get("CACHE_DIR", ".")).expanduser().resolve()
 
 # Dedicated sub-folders for the different cache types -----------------------
-OFFLINE_CACHE_DIR = _CACHE_ROOT / "offline_buffer_cache"
+# Offline cache defaults to a shared persistent directory in the project root:
+# <PROJECT_ROOT>/scratch/offline_buffers
+# This allows multiple training runs across seeds/hyperparams to share precomputed offline buffers.
+REPO_ROOT = Path(__file__).resolve().parents[3]
+_DEFAULT_OFFLINE_CACHE_DIR = REPO_ROOT / "scratch" / "offline_buffers"
+OFFLINE_CACHE_DIR = Path(os.environ.get("OFFLINE_CACHE_DIR", str(_DEFAULT_OFFLINE_CACHE_DIR))).expanduser().resolve()
+
 ONLINE_CACHE_DIR = _CACHE_ROOT / "online_buffer_cache"
 
 # Output directory for residual RL results ----------------------------------
-OUTPUTS_ROOT = Path(__file__).resolve().parents[3] / "resfit" / "outputs"
+OUTPUTS_ROOT = REPO_ROOT / "resfit" / "outputs"
 
 
 # -----------------------------------------------------------------------------
@@ -558,6 +564,20 @@ def main(cfg: ResidualTD3DexmgConfig):
     max_offline_transitions = (
         estimated_transitions if cfg.algo.offline_fraction > 0.0 else 1
     )  # Minimum size for online-only mode
+
+    # Check if a precomputed buffer exists at explicit buffer_path to align exact storage size
+    if getattr(cfg.offline_data, "buffer_path", None) is not None:
+        explicit_meta = Path(cfg.offline_data.buffer_path).expanduser().resolve() / "storage" / "meta.json"
+        if explicit_meta.exists():
+            try:
+                with open(explicit_meta) as f:
+                    meta_data = json.load(f)
+                exact_size = meta_data.get("shape", [None])[0]
+                if exact_size is not None:
+                    max_offline_transitions = exact_size
+                    print(f"Aligning offline buffer size to precomputed storage: {max_offline_transitions}")
+            except Exception as e:
+                print(f"Warning reading storage meta: {e}")
     if cfg.algo.offline_fraction > 0.0:
         print(f"Offline buffer sized for GT-as-base approach: {max_offline_transitions} transitions")
     else:
@@ -735,13 +755,38 @@ def main(cfg: ResidualTD3DexmgConfig):
     cache_hash = hashlib.sha1(meta_str.encode()).hexdigest()[:8]  # noqa: S324
 
     # Base local path for this buffer ---------------------------------------
-    cache_dir = OFFLINE_CACHE_DIR / cache_hash
+    dataset_clean_name = Path(cfg.offline_data.name).name
+    offline_cache_root = (
+        Path(cfg.offline_data.cache_dir).expanduser().resolve()
+        if getattr(cfg.offline_data, "cache_dir", None) is not None
+        else OFFLINE_CACHE_DIR
+    )
+
+    explicit_buffer_path = getattr(cfg.offline_data, "buffer_path", None)
+    if explicit_buffer_path is not None:
+        cache_dir = Path(explicit_buffer_path).expanduser().resolve()
+        print(f"[Offline Buffer] Using explicitly specified buffer path: {cache_dir}")
+    else:
+        dataset_candidate = offline_cache_root / dataset_clean_name
+        named_candidate = offline_cache_root / f"{dataset_clean_name}_{cache_hash}"
+        hash_candidate = offline_cache_root / cache_hash
+
+        if (dataset_candidate / "buffer_metadata.json").exists():
+            cache_dir = dataset_candidate
+        elif (named_candidate / "buffer_metadata.json").exists():
+            cache_dir = named_candidate
+        elif (hash_candidate / "buffer_metadata.json").exists():
+            cache_dir = hash_candidate
+        else:
+            # Default target to create: named after the dataset
+            cache_dir = dataset_candidate
+        print(f"[Offline Buffer] Resolved offline buffer path: {cache_dir}")
 
     # Try to download/extract from the Hub (will no-op if file not there)
     downloaded_dir = None
     if OFFLINE_HF_REPO is not None:
         print(f"Attempting to download offline buffer {cache_hash} from {OFFLINE_HF_REPO}...")
-        downloaded_dir = _hf_download_buffer(OFFLINE_HF_REPO, cache_hash, OFFLINE_CACHE_DIR)
+        downloaded_dir = _hf_download_buffer(OFFLINE_HF_REPO, cache_hash, offline_cache_root)
     if downloaded_dir is not None:
         cache_dir = downloaded_dir  # use extracted location
 
@@ -749,15 +794,21 @@ def main(cfg: ResidualTD3DexmgConfig):
     added = 0
 
     if cfg.algo.offline_fraction > 0.0:
+        is_valid_cache = (cache_dir / "buffer_metadata.json").exists() if cache_dir.exists() else False
+
         # Only populate offline buffer if we're using offline data
-        if cache_dir.exists():
-            print(f"{cache_dir} found on disk. Attempting to load...")
+        if is_valid_cache:
+            print(f"{cache_dir} found on disk with valid buffer metadata. Attempting to load...")
             offline_rb.sampler._empty()
             optimized_replay_buffer_loads(offline_rb, cache_dir)
             loaded_from_cache = True
             print(f"Loaded offline buffer from cache at {cache_dir} (size={len(offline_rb)})")
 
         if not loaded_from_cache:
+            if cache_dir.exists() and not is_valid_cache:
+                print(f"Warning: {cache_dir} exists but buffer_metadata.json is missing (incomplete dump). Rebuilding...")
+                shutil.rmtree(cache_dir, ignore_errors=True)
+
             added = _populate_offline_buffer(
                 dataset=dataset,
                 rb=offline_rb,
