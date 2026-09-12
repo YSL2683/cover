@@ -1,31 +1,29 @@
 #!/bin/bash
 PROJECT_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
-# Script to run Residual TD3 with Direct Similarity Potential Reward (Without PBRS difference)
-# Environment: Square (In-Distribution Position & Orientation)
-# Reward Type: reward_similarity_potential (R_dense = p_reward * Phi(s'))
+# Script to run Residual TD3 with Potential-Based Reward Shaping WITHOUT Terminal Masking
 # Note: Uses task-isolated CACHE_DIR to support concurrent multi-task Residual RL training.
 
 # Default parameters
-REWARD_TYPE="reward_similarity_potential"
+REWARD_TYPE="reward_pbrs_no_mask_nstep"
 BETA=1.0
 ALPHA=0.98
 W_M=0.3
 W_W=0.7
-P_REWARD=0.1  # Scaling factor for similarity potential magnitude
+P_REWARD=0.1  # Scaling factor for PBRS difference magnitude (Reduced for signal-to-noise ratio)
 SEED=42
 FREEZE_E2C="True"
 TASK="Square"
-RES_ACTION_REG=0.00005  # Regularization for residual action magnitude
+RES_ACTION_REG=0.0  # Regularization for residual action magnitude
 DDIM_STEPS=20
 
-# Base policy path (pointing to policy in resfit/my_lerobot_data)
+# Base policy path (placeholder pointing to policy in resfit/my_lerobot_data)
 BASE_POLICY_PATH="${PROJECT_ROOT}/resfit/my_lerobot_data/bc_run_2026-08-29_14-38-11_robomimic_square_v15_50_diffusion/policy_step_66000/policy"
 E2C_DIR="${PROJECT_ROOT}/lane/pretrained_e2c/square"
 OFFLINE_DATA_DIR="${PROJECT_ROOT}/resfit/my_lerobot_data/ysl2683/robomimic_square_v15_50"
 
 # Name for Weights & Biases
 WANDB_PROJECT="square_residual_rl"
-WANDB_NAME="${TASK}_${REWARD_TYPE}_beta${BETA}_scale${P_REWARD}"
+WANDB_NAME="${TASK}_${REWARD_TYPE}_beta${BETA}_scale${P_REWARD}_noreg"
 
 # Parse command line arguments
 while [[ "$#" -gt 0 ]]; do
@@ -48,9 +46,9 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 echo "=================================================="
-echo "Starting Residual TD3 Training for Square with Similarity Potential (No PBRS Difference)"
+echo "Starting Residual TD3 Training for Square with V-PBRS (No Terminal Masking)"
 echo "Target Task     : $TASK (In-Distribution Position & Orientation)"
-echo "Reward Type     : $REWARD_TYPE (Direct Potential R_dense = p_reward * Phi(s'))"
+echo "Reward Type     : $REWARD_TYPE"
 echo "Reward Scale    : $P_REWARD"
 echo "Beta            : $BETA"
 echo "Alpha           : $ALPHA"
@@ -78,12 +76,12 @@ export HF_HUB_OFFLINE=1
 export LEROBOT_OFFLINE=1
 export PYTHONHASHSEED=0
 CURRENT_TIME=$(date +"%Y%m%d_%H%M%S")
-export CACHE_DIR=${PROJECT_ROOT}/scratch/square_sim_pot_${CURRENT_TIME}
+export CACHE_DIR=${PROJECT_ROOT}/scratch/square_${CURRENT_TIME}
 
 # Clear isolated scratch memory buffers for this task only
 mkdir -p ${CACHE_DIR}
 
-# Run training
+# Run training with task="SquareOOD" and wandb.project="square_residual_rl"
 python resfit/rl_finetuning/scripts/train_residual_td3.py \
     env_modifier.mode=none \
     env_modifier.disturbance=null \
