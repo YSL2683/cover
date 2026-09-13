@@ -1,0 +1,38 @@
+#!/bin/bash
+PROJECT_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
+export CACHE_DIR=resfit/my_lerobot_data
+export PYTHONPATH=${PROJECT_ROOT}
+
+# Ensure conda environment 'cover' is activated and in PATH
+if [ -d "/home/ysl2683/anaconda3/envs/cover/bin" ]; then
+    export PATH="/home/ysl2683/anaconda3/envs/cover/bin:${PATH}"
+elif [ -d "/home/moai/miniconda3/envs/cover/bin" ]; then
+    export PATH="/home/moai/miniconda3/envs/cover/bin:${PATH}"
+fi
+if [ -f "/home/ysl2683/anaconda3/etc/profile.d/conda.sh" ]; then
+    source "/home/ysl2683/anaconda3/etc/profile.d/conda.sh"
+    conda activate cover
+elif [ -f "/home/moai/miniconda3/etc/profile.d/conda.sh" ]; then
+    source "/home/moai/miniconda3/etc/profile.d/conda.sh"
+    conda activate cover
+fi
+
+cd "${PROJECT_ROOT}"
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+python resfit/lerobot/scripts/train_bc_dexmg.py \
+    --dataset ysl2683/mimicgen_three_piece_assembly_D0_100 \
+    --policy diffusion \
+    --policy_kwargs '{"crop_shape": [112, 112]}' \
+    --steps 200000 \
+    --batch_size 256 \
+    --rollout_freq 1000 \
+    --save_freq 1000 \
+    --eval_env ThreePieceAssembly_D0 \
+    --eval_camera_size 128 \
+    --eval_num_episodes 50 \
+    --eval_num_envs 10 \
+    --num_workers 8 \
+    --seed 42 \
+    --wandb_enable --wandb_project train_diffusion_three_piece_assembly \
+    "$@"
