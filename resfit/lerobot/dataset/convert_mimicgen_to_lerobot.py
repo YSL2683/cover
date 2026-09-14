@@ -19,8 +19,8 @@ from huggingface_hub import create_repo, HfApi
 
 TASK_CONFIGS = {
     "coffee": {
-        "default_demo_dir": "lane/demo/mimicgen_coffee/50",
-        "dataset_name": "mimicgen_coffee_D0_50",
+        "default_demo_dir": "lane/demo/mimicgen_coffee/20",
+        "dataset_name": "mimicgen_coffee_D0_20",
         "task_name": "Coffee",
     },
     "mug_cleanup": {

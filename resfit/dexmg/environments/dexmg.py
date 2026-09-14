@@ -44,6 +44,15 @@ ENV_ROBOTS = {
     # ------------------------------------------------------------------
     # Threading task -- single Panda arm from MimicGen
     "Threading": ["Panda"],
+    "Coffee": ["Panda"],
+    "Coffee_D0": ["Panda"],
+    "Coffee_D1": ["Panda"],
+    "MugCleanup": ["Panda"],
+    "MugCleanup_D0": ["Panda"],
+    "MugCleanup_D1": ["Panda"],
+    "ThreePieceAssembly": ["Panda"],
+    "ThreePieceAssembly_D0": ["Panda"],
+    "ThreePieceAssembly_D1": ["Panda"],
     # ------------------------------------------------------------------
     # Robomimic benchmark tasks (single-arm unless otherwise noted)
     # ------------------------------------------------------------------
@@ -106,6 +115,9 @@ class RobosuiteGymWrapper:
             "SquareID": "NutAssemblySquare",
             "SquareOOD": "NutAssemblySquare",
             "Transport": "TwoArmTransport",
+            "Coffee": "Coffee_D0",
+            "MugCleanup": "MugCleanup_D0",
+            "ThreePieceAssembly": "ThreePieceAssembly_D0",
         }
 
         # Preserve original user-provided name for logging / heuristics
@@ -135,6 +147,15 @@ class RobosuiteGymWrapper:
             "PickPlaceCan": 200,
             "NutAssemblySquare": 300,
             "Threading": 500,
+            "Coffee": 400,
+            "Coffee_D0": 400,
+            "Coffee_D1": 400,
+            "MugCleanup": 500,
+            "MugCleanup_D0": 500,
+            "MugCleanup_D1": 500,
+            "ThreePieceAssembly": 500,
+            "ThreePieceAssembly_D0": 500,
+            "ThreePieceAssembly_D1": 500,
             "TwoArmTransport": 800,
             "TwoArmBoxCleanup": 300,
             "TwoArmCoffee": 400,
@@ -170,6 +191,21 @@ class RobosuiteGymWrapper:
             "TwoArmCanSortRandom",
         ]:
             import dexmimicgen  # noqa: F401, PLC0415
+
+        # Only import MimicGen if needed
+        if env_name in [
+            "Threading",
+            "Coffee",
+            "Coffee_D0",
+            "Coffee_D1",
+            "MugCleanup",
+            "MugCleanup_D0",
+            "MugCleanup_D1",
+            "ThreePieceAssembly",
+            "ThreePieceAssembly_D0",
+            "ThreePieceAssembly_D1",
+        ]:
+            import mimicgen  # noqa: F401, PLC0415
 
         robots = ENV_ROBOTS[env_name]
 
@@ -764,15 +800,31 @@ class RobosuiteGymWrapper:
         if "transport" in env_lower:
             return panda_transport_image_keys
 
+        # Single-arm Panda tasks (Lift, Can, Square, Threading, Coffee, MugCleanup, ThreePieceAssembly, etc.) --------
+        if env_lower in {
+            "lift",
+            "can",
+            "pickplacecan",
+            "square",
+            "nutassemblysquare",
+            "threading",
+            "coffee",
+            "coffee_d0",
+            "coffee_d1",
+            "mugcleanup",
+            "mugcleanup_d0",
+            "mugcleanup_d1",
+            "threepieceassembly",
+            "threepieceassembly_d0",
+            "threepieceassembly_d1",
+        }:
+            return panda_image_keys_single
+
         # Humanoid variants -------------------------------------------------
         if "cansort" in env_lower:
             return humanoid_can_sort_image_keys
-        if any(task in env_lower for task in ["pouring", "coffee"]):
+        if any(task in env_lower for task in ["twoarmpouring", "twoarmcoffee", "pouring"]):
             return humanoid_image_keys
-
-        # Single-arm Panda tasks (Lift, Can, Square, Threading, etc.) --------
-        if env_lower in {"lift", "can", "pickplacecan", "square", "nutassemblysquare", "threading"}:
-            return panda_image_keys_single
 
         # Fallback to two-arm Panda cameras --------------------------------
         return panda_image_keys_multi
@@ -804,13 +856,29 @@ class RobosuiteGymWrapper:
 
         env_lower = env_name.lower()
 
-        # Humanoid variants
-        if any(task in env_lower for task in ["pouring", "coffee", "cansort"]):
-            return humanoid_low_dim_keys
-
         # Single-arm Panda tasks
-        if env_lower in {"lift", "can", "pickplacecan", "square", "nutassemblysquare", "threading"}:
+        if env_lower in {
+            "lift",
+            "can",
+            "pickplacecan",
+            "square",
+            "nutassemblysquare",
+            "threading",
+            "coffee",
+            "coffee_d0",
+            "coffee_d1",
+            "mugcleanup",
+            "mugcleanup_d0",
+            "mugcleanup_d1",
+            "threepieceassembly",
+            "threepieceassembly_d0",
+            "threepieceassembly_d1",
+        }:
             return panda_low_dim_keys_single
+
+        # Humanoid variants
+        if any(task in env_lower for task in ["twoarmpouring", "twoarmcoffee", "pouring", "cansort"]):
+            return humanoid_low_dim_keys
 
         # Default: two-arm Panda
         return panda_low_dim_keys_multi

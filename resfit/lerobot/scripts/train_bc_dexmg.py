@@ -709,6 +709,15 @@ def main(cfg: argparse.Namespace):
         ]
         mimicgen_envs = [
             "Threading",  # Single-arm threading task from MimicGen
+            "Coffee",
+            "Coffee_D0",
+            "Coffee_D1",
+            "MugCleanup",
+            "MugCleanup_D0",
+            "MugCleanup_D1",
+            "ThreePieceAssembly",
+            "ThreePieceAssembly_D0",
+            "ThreePieceAssembly_D1",
         ]
 
         envs = dexmimicgen_envs + robomimic_envs + mimicgen_envs
