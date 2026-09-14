@@ -62,10 +62,12 @@ def run_visualizations(env, agent, lane_shaper, cfg):
                 d_w = dino_emb[:, 384:].cpu().numpy()[0]
                 
                 dummy_batch = {
+                    "dino": dino_emb,
                     ("next", "dino"): dino_emb,
                     "nonterminal": torch.tensor([[True]], device=device),
                     ("next", "reward"): torch.tensor([[0.0]], device=device),
-                    "action": torch.zeros((1, 7), device=device)
+                    "action": torch.zeros((1, 7), device=device),
+                    ("obs", "observation.base_action"): torch.zeros((1, 7), device=device)
                 }
                 dummy_td = TensorDict(dummy_batch, batch_size=[1])
                 

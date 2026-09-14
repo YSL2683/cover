@@ -981,7 +981,7 @@ def main(cfg: ResidualTD3DexmgConfig):
     tb_writer = SummaryWriter(log_dir=str(run_cache_dir / "tb_logs"))
     print(f"Run output directory: {run_cache_dir}")
 
-    reward_type = getattr(cfg.algo, "reward_type", "reward_2")
+    reward_type = getattr(cfg.algo, "reward_type", "reward_pbrs_no_mask_nstep")
     if reward_type.lower() == "none":
         lane_shaper = None
         print("Reward type is 'none'. Skipping LaNERewardShaper initialization.")

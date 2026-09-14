@@ -160,7 +160,7 @@ class RLPDAlgoConfig:
     offline_fraction: float = 0.5  # fraction of minibatch sampled from offline buffer
     
     # Reward shaping formulation --------------------------------------------
-    reward_type: str = "reward_3"  # "reward_1" (hard threshold) or "reward_3" (continuous RBF)
+    reward_type: str = "reward_pbrs_no_mask_nstep"
     reward_beta: float = 0.5
     reward_alpha: float = 0.98
     reward_w_m: float = 0.3
