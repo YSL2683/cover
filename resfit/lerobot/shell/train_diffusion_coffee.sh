@@ -21,7 +21,7 @@ cd "${PROJECT_ROOT}"
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 python resfit/lerobot/scripts/train_bc_dexmg.py \
-    --dataset ysl2683/mimicgen_coffee_D0_50 \
+    --dataset ysl2683/mimicgen_coffee_D0_20 \
     --policy diffusion \
     --policy_kwargs '{"crop_shape": [112, 112]}' \
     --steps 200000 \
