@@ -364,8 +364,8 @@ class LaNERewardShaper:
         Phi = self.w_m * S_main * (self.alpha ** rem_t_m_norm) + self.w_w * S_wrist * (self.alpha ** rem_t_w_norm)
         
         return Phi.cpu().numpy(), S_main.cpu().numpy(), S_wrist.cpu().numpy(), min_dist_m.cpu().numpy(), min_dist_w.cpu().numpy(), rem_t_m_norm.cpu().numpy(), rem_t_w_norm.cpu().numpy()
-    def _compute_potential_avg_time(self, dino_tensor):
-        """Computes the visual potential function Phi(s) by averaging remaining timesteps from both cameras."""
+    def _compute_potential_weighted_time(self, dino_tensor):
+        """Computes the visual potential function Phi(s) using similarity-weighted remaining timesteps (Alternative B)."""
         dino_m, dino_w = dino_tensor[:, :384], dino_tensor[:, 384:]
         
         z_pred_m = self.e2c_main.enc(dino_m)[0].detach()
@@ -389,11 +389,13 @@ class LaNERewardShaper:
         rem_t_m_norm = self.ref_horizon * rem_t_m
         rem_t_w_norm = self.ref_horizon * rem_t_w
         
-        # Simple arithmetic average of remaining normalized time
-        rem_t_avg = 0.5 * (rem_t_m_norm + rem_t_w_norm)
+        # Similarity-weighted consensus of remaining normalized time (Alternative B)
+        # Weights are based on visual similarity confidence: S_main, S_wrist
+        weight_sum = S_main + S_wrist + 1e-8
+        rem_t_weighted = (S_main * rem_t_m_norm + S_wrist * rem_t_w_norm) / weight_sum
         
-        # Potential using single averaged time discount
-        Phi = (self.w_m * S_main + self.w_w * S_wrist) * (self.alpha ** rem_t_avg)
+        # Potential using single similarity-weighted time discount
+        Phi = (self.w_m * S_main + self.w_w * S_wrist) * (self.alpha ** rem_t_weighted)
         
         return (
             Phi.cpu().numpy(),
@@ -403,7 +405,7 @@ class LaNERewardShaper:
             min_dist_w.cpu().numpy(),
             rem_t_m_norm.cpu().numpy(),
             rem_t_w_norm.cpu().numpy(),
-            rem_t_avg.cpu().numpy(),
+            rem_t_weighted.cpu().numpy(),
         )
 
     def shape_reward(self, batch, step):
@@ -473,23 +475,28 @@ class LaNERewardShaper:
             }
 
 
-        elif self.reward_type in ["reward_pbrs_no_mask_nstep_avg_time", "reward_pbrs_no_mask_nstep_time_avg", "reward_pbrs_no_mask_nstep_avg_rem_t"]:
+        elif self.reward_type in [
+            "reward_pbrs_no_mask_nstep_weighted_time",
+            "reward_pbrs_no_mask_nstep_time_weighted",
+            "reward_pbrs_no_mask_nstep_similarity_weighted_time",
+        ]:
             # -------------------------------------------------------------
-            # Potential-Based Reward Shaping with Averaged Timestep (No Terminal Mask, N-Step)
+            # Potential-Based Reward Shaping with Similarity-Weighted Timestep (Alternative B)
             # F(s, a, s_n) = gamma^n * Phi(s_n) - Phi(s)
-            # where Phi(s) = (w_m * S_m + w_w * S_w) * alpha^(rem_t_avg)
+            # where Phi(s) = (w_m * S_m + w_w * S_w) * alpha^(rem_t_weighted)
+            # rem_t_weighted = (S_m * rem_t_m + S_w * rem_t_w) / (S_m + S_w + 1e-8)
             # -------------------------------------------------------------
             (
                 Phi_next, S_main_next, S_wrist_next,
                 min_dist_m_next, min_dist_w_next,
-                rem_t_m_next, rem_t_w_next, rem_t_avg_next
-            ) = self._compute_potential_avg_time(batch["next", "dino"])
+                rem_t_m_next, rem_t_w_next, rem_t_weighted_next
+            ) = self._compute_potential_weighted_time(batch["next", "dino"])
             
             (
                 Phi_curr, S_main_curr, S_wrist_curr,
                 min_dist_m_curr, min_dist_w_curr,
-                rem_t_m_curr, rem_t_w_curr, rem_t_avg_curr
-            ) = self._compute_potential_avg_time(batch["dino"])
+                rem_t_m_curr, rem_t_w_curr, rem_t_weighted_curr
+            ) = self._compute_potential_weighted_time(batch["dino"])
             
             if "gamma" in batch.keys():
                 gamma_env = batch["gamma"].squeeze().detach().cpu().numpy()
@@ -531,7 +538,7 @@ class LaNERewardShaper:
                 "lane/min_dist_wrist_next_avg": min_dist_w_next.mean(),
                 "lane/rem_t_main_next_avg": rem_t_m_next.mean(),
                 "lane/rem_t_wrist_next_avg": rem_t_w_next.mean(),
-                "lane/rem_t_avg_next": rem_t_avg_next.mean(),
+                "lane/rem_t_weighted_next": rem_t_weighted_next.mean(),
                 "lane/action_l2_penalty": action_l2_penalty_mean,
                 "lane/ref_one_step_dist_main": self.ref_one_step_dist_main,
                 "lane/ref_one_step_dist_wrist": self.ref_one_step_dist_wrist,
@@ -649,7 +656,7 @@ class LaNERewardShaper:
             raise ValueError(
                 f"Unknown or unsupported reward_type: '{self.reward_type}'. "
                 f"Supported types are: ['reward_pbrs_no_mask_nstep', "
-                f"'reward_pbrs_no_mask_nstep_avg_time', "
+                f"'reward_pbrs_no_mask_nstep_weighted_time', "
                 f"'reward_pbrs_unified_no_mask_nstep', "
                 f"'reward_similarity_potential', 'none']"
             )

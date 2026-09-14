@@ -1,9 +1,9 @@
 #!/bin/bash
 PROJECT_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
-# Script to run Residual TD3 with Potential-Based Reward Shaping using Averaged Remaining Timesteps
+# Script to run Residual TD3 with Potential-Based Reward Shaping using Similarity-Weighted Remaining Timesteps (Alternative B)
 
 # Default parameters
-REWARD_TYPE="reward_pbrs_no_mask_nstep_avg_time"
+REWARD_TYPE="reward_pbrs_no_mask_nstep_weighted_time"
 BETA=1.0
 ALPHA=0.98
 W_M=0.3
@@ -45,7 +45,7 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 echo "=================================================="
-echo "Starting Residual TD3 Training for Square with Averaged Timestep PBRS"
+echo "Starting Residual TD3 Training for Square with Similarity-Weighted Timestep PBRS (Alternative B)"
 echo "Target Task     : $TASK (In-Distribution Position & Orientation)"
 echo "Reward Type     : $REWARD_TYPE"
 echo "Reward Scale    : $P_REWARD"
