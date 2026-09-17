@@ -1,39 +1,31 @@
 #!/bin/bash
-# Robust PROJECT_ROOT detection
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-PROJECT_ROOT=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)
-if [ -z "$PROJECT_ROOT" ]; then
-    PROJECT_ROOT=$(cd "$SCRIPT_DIR" && while [ ! -d "resfit" ] && [ "$PWD" != "/" ]; do cd ..; done; pwd)
-fi
-
-# Script to run Residual TD3 (ResFiT Baseline) WITHOUT Additional Reward Shaping (Reward None) for Lift
-# Note: Uses task-isolated CACHE_DIR to support concurrent multi-task Residual RL training.
+PROJECT_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
+# Script to run Residual TD3 with Potential-Based Reward Shaping using Similarity-Weighted Remaining Timesteps (Seed 52, 1000k steps)
 
 # Default parameters
-REWARD_TYPE="none"
+REWARD_TYPE="reward_pbrs_no_mask_nstep_weighted_time"
 BETA=1.0
 ALPHA=0.98
-W_M=0.0
-W_W=0.0
-P_REWARD=0.0  # Set to 0.0 as no additional reward shaping is used
-SEED=42
+W_M=0.3
+W_W=0.7
+P_REWARD=0.1
+SEED=52
 FREEZE_E2C="True"
-TASK="Lift"
-RES_ACTION_REG=0.0 # Regularization for residual action magnitude
-NUM_EPISODES=5
+TASK="Square"
+RES_ACTION_REG=0.00005
 DDIM_STEPS=20
+TOTAL_TIMESTEPS=1000000
 
-# Base policy path (pointing to best policy in resfit/my_lerobot_data)
-BASE_POLICY_PATH="${PROJECT_ROOT}/resfit/my_lerobot_data/bc_run_2026-09-08_15-40-24_robomimic_lift_v15_5_diffusion/best/policy"
-E2C_DIR="${PROJECT_ROOT}/lane/pretrained_e2c/lift"
-OFFLINE_DATA_DIR="${PROJECT_ROOT}/resfit/my_lerobot_data/ysl2683/robomimic_lift_v15_5"
+# Base policy path
+BASE_POLICY_PATH="${PROJECT_ROOT}/resfit/my_lerobot_data/bc_run_2026-08-29_14-38-11_robomimic_square_v15_50_diffusion/policy_step_66000/policy"
+E2C_DIR="${PROJECT_ROOT}/lane/pretrained_e2c/square"
+OFFLINE_DATA_DIR="${PROJECT_ROOT}/resfit/my_lerobot_data/ysl2683/robomimic_square_v15_50"
 
 # Name for Weights & Biases
-WANDB_PROJECT="lift_residual_rl"
-WANDB_NAME="${TASK}_ID_resfit_seed${SEED}"
+WANDB_PROJECT="square_residual_rl"
+WANDB_NAME="${TASK}_${REWARD_TYPE}_beta${BETA}_scale${P_REWARD}_seed${SEED}"
 
 # Parse command line arguments
-CUSTOM_WANDB_NAME=""
 while [[ "$#" -gt 0 ]]; do
     case $1 in
         --reward_type) REWARD_TYPE="$2"; shift ;;
@@ -43,51 +35,37 @@ while [[ "$#" -gt 0 ]]; do
         --w_w) W_W="$2"; shift ;;
         --p_reward) P_REWARD="$2"; shift ;;
         --seed) SEED="$2"; shift ;;
-        --wandb_project) WANDB_PROJECT="$2"; shift ;;
-        --wandb_name) CUSTOM_WANDB_NAME="$2"; shift ;;
+        --wandb_name) WANDB_NAME="$2"; shift ;;
         --freeze_e2c) FREEZE_E2C="$2"; shift ;;
         --base_policy_path) BASE_POLICY_PATH="$2"; shift ;;
         --e2c_dir) E2C_DIR="$2"; shift ;;
-        --offline_data_dir) OFFLINE_DATA_DIR="$2"; shift ;;
-        --num_episodes) NUM_EPISODES="$2"; shift ;;
         --ddim_steps) DDIM_STEPS="$2"; shift ;;
+        --total_timesteps) TOTAL_TIMESTEPS="$2"; shift ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
     esac
     shift
 done
 
-if [ -n "$CUSTOM_WANDB_NAME" ]; then
-    WANDB_NAME="$CUSTOM_WANDB_NAME"
-else
-    WANDB_NAME="${TASK}_ID_resfit_seed${SEED}"
-fi
-
 echo "=================================================="
-echo "Starting Residual TD3 (ResFiT) Training for Lift WITHOUT Additional Reward"
+echo "Starting Residual TD3 Training for Square (Seed 52, 1000k steps)"
 echo "Target Task     : $TASK (In-Distribution Position & Orientation)"
-echo "Reward Type     : $REWARD_TYPE (No additional reward shaping)"
+echo "Reward Type     : $REWARD_TYPE"
 echo "Reward Scale    : $P_REWARD"
 echo "Beta            : $BETA"
 echo "Alpha           : $ALPHA"
 echo "Main Weight     : $W_M"
 echo "Wrist Weight    : $W_W"
 echo "Seed            : $SEED"
+echo "Total Timesteps : $TOTAL_TIMESTEPS"
 echo "Freeze E2C      : $FREEZE_E2C"
 echo "WandB Project   : $WANDB_PROJECT"
 echo "WandB Name      : $WANDB_NAME"
 echo "Base Policy Path: $BASE_POLICY_PATH"
 echo "E2C Dir         : $E2C_DIR"
-echo "Offline Data Dir: $OFFLINE_DATA_DIR"
-echo "Num Episodes    : $NUM_EPISODES"
 echo "DDIM Steps      : $DDIM_STEPS"
 echo "=================================================="
 
 # Ensure conda environment 'cover' is activated
-if [ -d "/home/ysl2683/anaconda3/envs/cover/bin" ]; then
-    export PATH="/home/ysl2683/anaconda3/envs/cover/bin:${PATH}"
-elif [ -d "/home/moai/miniconda3/envs/cover/bin" ]; then
-    export PATH="/home/moai/miniconda3/envs/cover/bin:${PATH}"
-fi
 if [ -f "/home/ysl2683/anaconda3/etc/profile.d/conda.sh" ]; then
     source "/home/ysl2683/anaconda3/etc/profile.d/conda.sh"
     conda activate cover
@@ -103,12 +81,12 @@ export HF_HUB_OFFLINE=1
 export LEROBOT_OFFLINE=1
 export PYTHONHASHSEED=0
 CURRENT_TIME=$(date +"%Y%m%d_%H%M%S")
-export CACHE_DIR=${PROJECT_ROOT}/scratch/lift_${CURRENT_TIME}
+export CACHE_DIR=${PROJECT_ROOT}/scratch/square_weighted_time_seed52_${CURRENT_TIME}
 
 # Clear isolated scratch memory buffers for this task only
 mkdir -p ${CACHE_DIR}
 
-# Run training with task="Lift" and wandb.project="lift_residual_rl"
+# Run training
 python resfit/rl_finetuning/scripts/train_residual_td3.py \
     env_modifier.mode=none \
     env_modifier.disturbance=null \
@@ -116,6 +94,7 @@ python resfit/rl_finetuning/scripts/train_residual_td3.py \
     rl_camera="['observation.images.agentview','observation.images.robot0_eye_in_hand']" \
     wandb.project="${WANDB_PROJECT}" \
     wandb.name="${WANDB_NAME}" \
+    algo.total_timesteps="${TOTAL_TIMESTEPS}" \
     seed="${SEED}" \
     algo.reward_type="${REWARD_TYPE}" \
     algo.reward_beta="${BETA}" \
@@ -128,7 +107,6 @@ python resfit/rl_finetuning/scripts/train_residual_td3.py \
     base_policy_path="${BASE_POLICY_PATH}" \
     e2c_dir="${E2C_DIR}" \
     offline_data.name="${OFFLINE_DATA_DIR}" \
-    offline_data.num_episodes="${NUM_EPISODES}" \
     eval_interval_every_steps=10000 \
     torch_deterministic=false \
     base_policy.diffusion_ddim_steps="${DDIM_STEPS}"

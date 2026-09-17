@@ -103,6 +103,6 @@ python resfit/rl_finetuning/scripts/train_residual_td3.py \
     base_policy_path="${BASE_POLICY_PATH}" \
     e2c_dir="${E2C_DIR}" \
     offline_data.name="${OFFLINE_DATA_DIR}" \
-    eval_interval_every_steps=2000 \
+    eval_interval_every_steps=10000 \
     torch_deterministic=false \
     base_policy.diffusion_ddim_steps="${DDIM_STEPS}"
