@@ -367,6 +367,10 @@ class RobosuiteGymWrapper:
                     bounds = self.env_modifier_config.ood_position
                     sampler.x_range = list(bounds.x_bounds)
                     sampler.y_range = list(bounds.y_bounds)
+                    if hasattr(self.env, "placement_initializer") and hasattr(self.env.placement_initializer, "samplers"):
+                        rd_sampler = self.env.placement_initializer.samplers.get("RoundNutSampler")
+                        if rd_sampler is not None:
+                            rd_sampler.ensure_valid_placement = False
                     logger.debug(f"Applied OOD Position Bounds: x={bounds.x_bounds}, y={bounds.y_bounds}")
             except Exception as e:
                 logger.warning(f"Failed to apply OOD position modifiers: {e}")
