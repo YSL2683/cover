@@ -6,31 +6,32 @@ if [ -z "$PROJECT_ROOT" ]; then
     PROJECT_ROOT=$(cd "$SCRIPT_DIR" && while [ ! -d "resfit" ] && [ "$PWD" != "/" ]; do cd ..; done; pwd)
 fi
 
-# Script to run Residual TD3 with Unified Potential-Based Reward Shaping (Unified PBRS)
-# Task        : Square Table Center OOD (Center: (0.0, 0.0), Size: 0.5cm x 11.5cm)
-# Base Policy : 200 Demos Diffusion Policy (DDIM 20 steps)
-# E2C Encoder : lane/pretrained_e2c_unified/square_200 (Unified Latent)
-# Reward      : reward_pbrs_unified_no_mask_nstep (P_REWARD=0.1, BETA=1.0)
-
-# Table Center Position Bounds (Preserving Base Size: 0.5cm x 11.5cm)
-X_BOUNDS="[-0.0025, 0.0025]"
-Y_BOUNDS="[-0.0575, 0.0575]"
+# Script to run Residual TD3 (Vanilla ResFiT Baseline) on Square Position OOD with Diameter Expansion (1000k Steps, 200 Demos)
+# Task        : Square Position OOD (Diameter Expansion Span: 9.25 cm x 20.25 cm)
+# Bounds      : X: [-0.15875, -0.06625], Y: [0.06625, 0.26875]
+# Base Policy : 200 Demos Diffusion Policy
+# Reward      : none (No additional reward shaping, sparse reward only)
+# Note: Uses task-isolated CACHE_DIR to support concurrent multi-task Residual RL training.
 
 # Default parameters
-REWARD_TYPE="reward_pbrs_unified_no_mask_nstep"
+REWARD_TYPE="none"
 BETA=1.0
 ALPHA=0.98
-W_M=0.3
-W_W=0.7
-P_REWARD=0.1
+W_M=0.0
+W_W=0.0
+P_REWARD=0.0  # Set to 0.0 as no additional reward shaping is used
 SEED=42
 FREEZE_E2C="True"
 TASK="Square"
-RES_ACTION_REG=0.00005
+RES_ACTION_REG=0.0  # Regularization for residual action magnitude
 DDIM_STEPS=20
 TOTAL_TIMESTEPS=1000000
 NUM_EPISODES=200
 EVAL_INTERVAL=10000
+
+# Position OOD bounds (Diameter Expansion: ID + D_nut (8.75cm) per axis, center maintained)
+X_BOUNDS="[-0.15875, -0.06625]"
+Y_BOUNDS="[0.06625, 0.26875]"
 
 # Base policy path (pointing to trained 200-demo diffusion policy)
 BASE_POLICY_DIR="${PROJECT_ROOT}/resfit/my_lerobot_data/bc_run_2026-09-17_10-28-08_robomimic_square_v15_200_diffusion"
@@ -42,12 +43,13 @@ else
     BASE_POLICY_PATH="${BASE_POLICY_DIR}"
 fi
 
-# E2C directory (Unified 200 demos) and Offline data directory for 200 demos
-E2C_DIR="${PROJECT_ROOT}/lane/pretrained_e2c_unified/square_200"
+# E2C directory and Offline data directory for 200 demos
+E2C_DIR="${PROJECT_ROOT}/lane/pretrained_e2c/square_200"
 OFFLINE_DATA_DIR="${PROJECT_ROOT}/resfit/my_lerobot_data/ysl2683/robomimic_square_v15_200"
 
 # Name for Weights & Biases
 WANDB_PROJECT="square_residual_rl"
+WANDB_NAME="${TASK}_position_ood_9.25x20.25_resfit_200demos_1000k_seed${SEED}"
 CUSTOM_WANDB_NAME=""
 
 # Parse command line arguments
@@ -70,6 +72,8 @@ while [[ "$#" -gt 0 ]]; do
         --e2c_dir) E2C_DIR="$2"; shift ;;
         --offline_data_dir) OFFLINE_DATA_DIR="$2"; shift ;;
         --ddim_steps) DDIM_STEPS="$2"; shift ;;
+        --x_bounds) X_BOUNDS="$2"; shift ;;
+        --y_bounds) Y_BOUNDS="$2"; shift ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
     esac
     shift
@@ -85,27 +89,22 @@ fi
 if [ -n "$CUSTOM_WANDB_NAME" ]; then
     WANDB_NAME="$CUSTOM_WANDB_NAME"
 else
-    WANDB_NAME="${TASK}_table_center_ood_unified_pbrs_beta${BETA}_scale${P_REWARD}_200demos_1000k_seed${SEED}"
+    WANDB_NAME="${TASK}_position_ood_9.25x20.25_resfit_200demos_1000k_seed${SEED}"
 fi
 
 echo "=================================================="
-echo "Starting Residual TD3 Training with UNIFIED PBRS (200 Demos)"
-echo "Target Task      : $TASK (Table Center OOD: X$X_BOUNDS, Y$Y_BOUNDS)"
+echo "Starting Residual TD3 (ResFiT) Training for Square Position OOD (Diameter Expansion)"
+echo "Target Task      : $TASK (Position OOD Diameter: X$X_BOUNDS, Y$Y_BOUNDS)"
 echo "Total Timesteps  : $TOTAL_TIMESTEPS"
-echo "Reward Type      : $REWARD_TYPE"
-echo "E2C Mode         : unified"
+echo "Reward Type      : $REWARD_TYPE (No additional reward shaping)"
 echo "Reward Scale     : $P_REWARD"
 echo "Beta             : $BETA"
 echo "Alpha            : $ALPHA"
-echo "Main Weight      : $W_M"
-echo "Wrist Weight     : $W_W"
-echo "Action L2 Reg    : $RES_ACTION_REG"
 echo "Seed             : $SEED"
 echo "Freeze E2C       : $FREEZE_E2C"
 echo "WandB Project    : $WANDB_PROJECT"
 echo "WandB Name       : $WANDB_NAME"
 echo "Base Policy Path : $BASE_POLICY_PATH"
-echo "E2C Dir          : $E2C_DIR"
 echo "Offline Data Dir : $OFFLINE_DATA_DIR"
 echo "Offline Episodes : $NUM_EPISODES"
 echo "DDIM Steps       : $DDIM_STEPS"
@@ -133,7 +132,7 @@ export HF_HUB_OFFLINE=1
 export LEROBOT_OFFLINE=1
 export PYTHONHASHSEED=0
 CURRENT_TIME=$(date +"%Y%m%d_%H%M%S")
-export CACHE_DIR=${PROJECT_ROOT}/scratch/square_table_center_ood_unified_200demos_${CURRENT_TIME}
+export CACHE_DIR=${PROJECT_ROOT}/scratch/square_pos_ood_diam_resfit_200demos_${CURRENT_TIME}
 
 # Clear isolated scratch memory buffers for this task only
 mkdir -p ${CACHE_DIR}
@@ -151,7 +150,6 @@ python resfit/rl_finetuning/scripts/train_residual_td3.py \
     seed="${SEED}" \
     algo.total_timesteps="${TOTAL_TIMESTEPS}" \
     algo.reward_type="${REWARD_TYPE}" \
-    algo.e2c_mode="unified" \
     algo.reward_beta="${BETA}" \
     algo.reward_alpha="${ALPHA}" \
     algo.reward_w_m="${W_M}" \
