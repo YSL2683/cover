@@ -17,7 +17,7 @@ X_BOUNDS="[-0.048, -0.043]"
 Y_BOUNDS="[0.010, 0.125]"
 
 # Default parameters
-REWARD_TYPE="reward_pbrs_no_mask_nstep_weighted_time"
+REWARD_TYPE="reward_pbrs_unified_no_mask_nstep"
 BETA=1.0
 ALPHA=0.98
 W_M=0.3
