@@ -986,7 +986,20 @@ def main(cfg: ResidualTD3DexmgConfig):
         lane_shaper = None
         print("Reward type is 'none'. Skipping LaNERewardShaper initialization.")
     else:
-        print("Initializing LaNERewardShaper...")
+        # Auto-detect z_dim from pretrained E2C checkpoint if available
+        detected_z_dim = getattr(cfg.algo, "z_dim", 16)
+        e2c_dir = getattr(cfg, "e2c_dir", None)
+        e2c_mode = getattr(cfg.algo, "e2c_mode", "unified" if "unified" in reward_type else "decoupled")
+        if e2c_dir and os.path.exists(e2c_dir):
+            ckpt_name = "e2c_unified.pt" if e2c_mode == "unified" else "e2c_main.pt"
+            ckpt_path = os.path.join(e2c_dir, ckpt_name)
+            if os.path.exists(ckpt_path):
+                ckpt = torch.load(ckpt_path, map_location="cpu")
+                if "enc.ff.3.weight" in ckpt:
+                    detected_z_dim = ckpt["enc.ff.3.weight"].shape[0] // 2
+                    print(f"Auto-detected E2C z_dim={detected_z_dim} from checkpoint {ckpt_path}")
+
+        print(f"Initializing LaNERewardShaper with z_dim={detected_z_dim}, e2c_mode={e2c_mode}...")
         lane_shaper = LaNERewardShaper(
             device, action_dim, offline_rb, online_rb=online_rb,
             p_reward=getattr(cfg.algo, "p_reward", 1.0), 
@@ -997,8 +1010,9 @@ def main(cfg: ResidualTD3DexmgConfig):
             w_m=getattr(cfg.algo, "reward_w_m", 0.3),
             w_w=getattr(cfg.algo, "reward_w_w", 0.7),
             gamma=cfg.algo.gamma,
-            e2c_mode=getattr(cfg.algo, "e2c_mode", "unified" if "unified" in reward_type else "decoupled"),
-            ref_horizon=getattr(cfg.algo, "ref_horizon", 30.0)
+            e2c_mode=e2c_mode,
+            ref_horizon=getattr(cfg.algo, "ref_horizon", 30.0),
+            z_dim=detected_z_dim,
         )
         lane_shaper.precompute_offline_dino()
         lane_shaper.precompute_online_dino(online_rb)

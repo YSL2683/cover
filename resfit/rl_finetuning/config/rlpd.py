@@ -165,6 +165,7 @@ class RLPDAlgoConfig:
     reward_alpha: float = 0.98
     reward_w_m: float = 0.3
     reward_w_w: float = 0.7
+    z_dim: int = 16
 
     # ------------------------------------------------------------------
     # N-step returns ----------------------------------------------------

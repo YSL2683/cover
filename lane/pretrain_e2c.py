@@ -3,8 +3,16 @@ import numpy as np
 from torch.utils.data import DataLoader, TensorDataset
 import os
 import sys
+from pathlib import Path
 import argparse
 import torchvision.transforms as T
+
+# Add project root and lane directory to sys.path
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+if str(PROJECT_ROOT / "lane") not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT / "lane"))
 
 # Import MLPE2C from LaNE
 from e2c import MLPE2C
@@ -72,15 +80,15 @@ def get_dino_features(images, dino, device, is_training=True):
     return feat_m, feat_w
 
 
-def train_e2c(obs, next_obs, actions, dino, device="cuda", n_iter=5000, mse_tol=1e-2, mode="decoupled"):
+def train_e2c(obs, next_obs, actions, dino, device="cuda", n_iter=5000, mse_tol=1e-2, mode="decoupled", z_dim=16):
     action_dim = actions.shape[1]
     
     if mode == "unified":
-        e2c_unified = MLPE2C(obs_shape=(768,), action_dim=action_dim, z_dimension=16).to(device)
+        e2c_unified = MLPE2C(obs_shape=(768,), action_dim=action_dim, z_dimension=z_dim).to(device)
         opt_unified = torch.optim.Adam(e2c_unified.parameters(), lr=1e-4)
     else:
-        e2c_main = MLPE2C(obs_shape=(384,), action_dim=action_dim, z_dimension=16).to(device)
-        e2c_wrist = MLPE2C(obs_shape=(384,), action_dim=action_dim, z_dimension=16).to(device)
+        e2c_main = MLPE2C(obs_shape=(384,), action_dim=action_dim, z_dimension=z_dim).to(device)
+        e2c_wrist = MLPE2C(obs_shape=(384,), action_dim=action_dim, z_dimension=z_dim).to(device)
         
         opt_m = torch.optim.Adam(e2c_main.parameters(), lr=1e-4)
         opt_w = torch.optim.Adam(e2c_wrist.parameters(), lr=1e-4)
@@ -222,6 +230,7 @@ if __name__ == "__main__":
     parser.add_argument("--demo_dir", type=str, required=True, help="Path to demo directory (e.g. demo/robosuite_nut_assembly_square/20/)")
     parser.add_argument("--save_dir", type=str, required=True, help="Path to save pretrained E2C models")
     parser.add_argument("--mode", type=str, default="decoupled", choices=["decoupled", "unified"], help="Mode for latent space (decoupled or unified)")
+    parser.add_argument("--z_dim", type=int, default=16, help="Latent dimension for E2C (default: 16)")
     args = parser.parse_args()
     
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -235,7 +244,7 @@ if __name__ == "__main__":
     dino.eval()
     
     print("Training E2C with on-the-fly random crop augmentation...")
-    e2c_models = train_e2c(obs, next_obs, actions, dino, device=device, n_iter=1000, mode=args.mode)
+    e2c_models = train_e2c(obs, next_obs, actions, dino, device=device, n_iter=1000, mode=args.mode, z_dim=args.z_dim)
     
     print("Precomputing demo latents (with center crop)...")
     if args.mode == "unified":

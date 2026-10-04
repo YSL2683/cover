@@ -6,14 +6,18 @@ from pathlib import Path
 import torchvision.transforms.functional as TF
 import torch.nn.functional as F
 
-# Add lane to sys.path to import MLPE2C
-lane_dir = Path(__file__).resolve().parents[3] / "lane"
-sys.path.append(str(lane_dir))
+# Add project root and lane to sys.path to import MLPE2C and lane modules
+project_root = Path(__file__).resolve().parents[3]
+lane_dir = project_root / "lane"
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+if str(lane_dir) not in sys.path:
+    sys.path.insert(0, str(lane_dir))
 from e2c import MLPE2C
 
 class LaNERewardShaper:
     def __init__(self, device, action_dim, offline_rb, online_rb=None, p_reward=1.0, action_l2_reg_weight=0.0, reward_type="reward_pbrs_no_mask_nstep",
-                 beta=0.5, alpha=0.98, w_m=0.3, w_w=0.7, gamma=0.99, e2c_mode="decoupled", ref_horizon=30.0):
+                 beta=0.5, alpha=0.98, w_m=0.3, w_w=0.7, gamma=0.99, e2c_mode="decoupled", ref_horizon=30.0, z_dim=16):
         self.device = device
         self.p_reward = p_reward
         self.action_l2_reg_weight = action_l2_reg_weight
@@ -27,6 +31,7 @@ class LaNERewardShaper:
         self.offline_rb = offline_rb
         self.online_rb = online_rb
         self.e2c_mode = "unified" if "unified" in reward_type else e2c_mode
+        self.z_dim = z_dim
         
         # Determine main camera key dynamically from offline buffer
         try:
@@ -42,7 +47,7 @@ class LaNERewardShaper:
         
         if self.e2c_mode == "unified":
             self.e2c_unified = MLPE2C(
-                obs_shape=(768,), action_dim=action_dim, z_dimension=16, crop_shape=None
+                obs_shape=(768,), action_dim=action_dim, z_dimension=self.z_dim, crop_shape=None
             ).to(device)
             self.e2c_unified_opt = torch.optim.Adam(self.e2c_unified.parameters(), lr=1e-4)
             self.z_demo_unified_cache = {}
@@ -50,10 +55,10 @@ class LaNERewardShaper:
         else:
             # Two cameras: front and wrist, 384 dim each for DINOv2 ViT-S
             self.e2c_main = MLPE2C(
-                obs_shape=(384,), action_dim=action_dim, z_dimension=16, crop_shape=None
+                obs_shape=(384,), action_dim=action_dim, z_dimension=self.z_dim, crop_shape=None
             ).to(device)
             self.e2c_wrist = MLPE2C(
-                obs_shape=(384,), action_dim=action_dim, z_dimension=16, crop_shape=None
+                obs_shape=(384,), action_dim=action_dim, z_dimension=self.z_dim, crop_shape=None
             ).to(device)
             
             self.e2c_main_opt = torch.optim.Adam(self.e2c_main.parameters(), lr=1e-4)
