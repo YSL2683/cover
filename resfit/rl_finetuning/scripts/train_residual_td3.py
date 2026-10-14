@@ -995,7 +995,13 @@ def main(cfg: ResidualTD3DexmgConfig):
             ckpt_path = os.path.join(e2c_dir, ckpt_name)
             if os.path.exists(ckpt_path):
                 ckpt = torch.load(ckpt_path, map_location="cpu")
-                if "enc.ff.3.weight" in ckpt:
+                if "dec.0.weight" in ckpt:
+                    detected_z_dim = ckpt["dec.0.weight"].shape[1]
+                    print(f"Auto-detected E2C z_dim={detected_z_dim} from checkpoint {ckpt_path}")
+                elif "enc.ff.6.weight" in ckpt:
+                    detected_z_dim = ckpt["enc.ff.6.weight"].shape[0] // 2
+                    print(f"Auto-detected E2C z_dim={detected_z_dim} from checkpoint {ckpt_path}")
+                elif "enc.ff.3.weight" in ckpt:
                     detected_z_dim = ckpt["enc.ff.3.weight"].shape[0] // 2
                     print(f"Auto-detected E2C z_dim={detected_z_dim} from checkpoint {ckpt_path}")
 

@@ -7,8 +7,8 @@
 ## 0. 전체 이전 워크플로우 요약
 
 1. **[현재 PC]** Docker 이미지 빌드 및 아카이브 저장 (`cover_image.tar.gz`)
-2. **[현재 PC $\rightarrow$ 타겟 PC]** 로컬 네트워크(`rsync`)로 필수 파일 전송 (~40GB: 코드 + 38GB 데모 데이터)
-   *(주의: 375GB 과거 산출물 `resfit/outputs` 및 82GB 캐시 `scratch`는 전송에서 자동 제외)*
+2. **[현재 PC $\rightarrow$ 타겟 PC]** 로컬 네트워크(`rsync`)로 필수 파일 전송 (~47GB: 코드 + 38GB 데모 데이터 + 6.9GB 오프라인 버퍼 캐시)
+   *(주의: 375GB 과거 산출물 `resfit/outputs` 및 75GB 단일 실험 캐시는 전송에서 자동 제외)*
 3. **[타겟 PC]** NVIDIA Container Toolkit 설치 (최초 1회)
 4. **[타겟 PC]** Docker 이미지 로드 (`docker load`)
 5. **[타겟 PC]** 컨테이너 실행 및 환경 검증 (`test_container_env.py`)
@@ -38,7 +38,7 @@ docker save cover:latest | gzip > cover_image.tar.gz
 
 ## 2. [현재 PC $\rightarrow$ 타겟 PC] 로컬 네트워크 전송 (rsync)
 
-불필요한 375GB 과거 산출물(`resfit/outputs`)과 82GB 캐시(`scratch`)를 제외하고, 필수적인 코드, 데모 데이터셋(`my_lerobot_data`, 38GB), 사전학습 E2C 가중치(`lane/pretrained_e2c`, 171MB), 빌드된 도커 이미지만 고속으로 전송합니다.
+불필요한 375GB 과거 산출물(`resfit/outputs`)과 75GB 특정 실험 캐시를 제외하고, 필수적인 코드, 데모 데이터셋(`my_lerobot_data`, 38GB), 사전학습 E2C 가중치(`lane/pretrained_e2c`, 171MB), **오프라인 리플레이 버퍼 캐시(`scratch/offline_buffers`, 6.9GB)**, 빌드된 도커 이미지만 고속으로 전송합니다.
 
 > **참고**: `<TARGET_USER>`와 `<TARGET_IP>`는 타겟 PC의 사용자명과 IP 주소로 변경하세요. (예: `moai@192.168.0.50`)
 
@@ -47,9 +47,9 @@ docker save cover:latest | gzip > cover_image.tar.gz
 scp cover_image.tar.gz <TARGET_USER>@<TARGET_IP>:~/
 ```
 
-### 2-2. 워크스페이스 코드 및 데이터 전송
+### 2-2. 워크스페이스 코드 및 데모 데이터 전송
 ```bash
-# 타겟 PC의 홈 디렉토리(또는 원하는 경로)에 cover 폴더 동기화
+# 타겟 PC의 홈 디렉토리에 cover 폴더 동기화
 rsync -avzP \
   --exclude 'resfit/outputs' \
   --exclude 'scratch' \
@@ -57,9 +57,18 @@ rsync -avzP \
   --exclude '.git' \
   /home/moai/ysl_ws/cover/ <TARGET_USER>@<TARGET_IP>:~/cover/
 ```
-*(기본적인 `resfit/outputs`와 `scratch` 폴더는 타겟 PC에서 학습 시작 시 자동으로 생성되므로 전송할 필요가 없습니다.)*
 
-### 2-3. WandB 인증 키 전송 (선택 사항)
+### 2-3. 오프라인 리플레이 버퍼 캐시 전송 (강력 권장, 6.9GB)
+`scratch/offline_buffers`에는 50 데모 및 200 데모에 대해 사전 구축된 TorchRL Memmap 리플레이 버퍼가 저장되어 있습니다.  
+이 캐시를 미리 전송해두면 타겟 PC에서 첫 학습을 시작할 때 **수십 분 소요되는 버퍼 구축/전처리 과정을 건너뛰고 0초 만에 즉시 학습을 시작**할 수 있습니다:
+
+```bash
+# 타겟 PC에 scratch 폴더 생성 후 offline_buffers 전송
+ssh <TARGET_USER>@<TARGET_IP> "mkdir -p ~/cover/scratch"
+rsync -avzP /home/moai/ysl_ws/cover/scratch/offline_buffers <TARGET_USER>@<TARGET_IP>:~/cover/scratch/
+```
+
+### 2-4. WandB 인증 키 전송 (선택 사항)
 WandB 로그 연동을 유지하려면 `~/.netrc` 파일도 전송합니다:
 ```bash
 scp ~/.netrc <TARGET_USER>@<TARGET_IP>:~/
