@@ -1,9 +1,9 @@
 #!/bin/bash
 # ==============================================================================
-# Script     : run_square_cam_pitch_down_10deg_weak_decoupled_seed52.sh
-# Category   : Exp 2: OOD - Camera Pitch Down 10° - Weak Base (50 Demos) Decoupled
-# Title      : Camera Pitch Down 10° Weak Base Decoupled Latent PBRS (Ours)
-# Seed       : 52
+# Script     : run_square_cam_pitch_down_7deg_weak_unified_seed42.sh
+# Category   : Exp 2: OOD - Camera Pitch Down 7° - Weak Base (50 Demos) Unified
+# Title      : Camera Pitch Down 7° Weak Base Unified Latent PBRS
+# Seed       : 42
 # ==============================================================================
 set -e
 
@@ -16,30 +16,30 @@ fi
 
 # Default run configuration
 TASK="Square"
-SEED=52
+SEED=42
 TOTAL_TIMESTEPS=1000000
 EVAL_INTERVAL=10000
 DDIM_STEPS=20
 ACTION_SCALE=0.1
 RES_ACTION_REG=5e-05
-REWARD_TYPE="reward_pbrs_no_mask_nstep_weighted_time"
+REWARD_TYPE="reward_pbrs_unified_no_mask_nstep"
 P_REWARD=0.1
 BETA=1.0
 ALPHA=0.98
 W_M=0.3
 W_W=0.7
-Z_DIM=8
+Z_DIM=16
 NUM_EPISODES=50
 FREEZE_E2C="True"
 
 # WandB Logging
 WANDB_PROJECT="paper_square"
-WANDB_NAME="Square_cam_pitch_down_10deg_weak_50d_decoupled_z8_scale0.1_1000k_seed52"
+WANDB_NAME="Square_cam_pitch_down_7deg_weak_50d_unified_scale0.1_1000k_seed42"
 
 # Paths
 BASE_POLICY_PATH="${PROJECT_ROOT}/resfit/my_lerobot_data/bc_run_2026-08-29_14-38-11_robomimic_square_v15_50_diffusion/policy_step_66000/policy"
 OFFLINE_DATA_DIR="${PROJECT_ROOT}/resfit/my_lerobot_data/ysl2683/robomimic_square_v15_50"
-E2C_DIR="${PROJECT_ROOT}/lane/pretrained_e2c/square_z8"
+E2C_DIR="${PROJECT_ROOT}/lane/pretrained_e2c_unified/square"
 
 # Conda environment activation (compatible with PC1 and PC2)
 if [ -d "/home/ysl2683/anaconda3/envs/cover/bin" ]; then
@@ -67,12 +67,12 @@ export OFFLINE_CACHE_DIR="${PROJECT_ROOT}/scratch/offline_buffers"
 
 # Isolated Cache Directory
 CURRENT_TIME=$(date +"%Y%m%d_%H%M%S")
-export CACHE_DIR=${PROJECT_ROOT}/scratch/square_cam_pitch_down_10deg_weak_decoupled_seed${SEED}_${CURRENT_TIME}
+export CACHE_DIR=${PROJECT_ROOT}/scratch/square_cam_pitch_down_7deg_weak_unified_seed${SEED}_${CURRENT_TIME}
 mkdir -p "${CACHE_DIR}"
 
 echo "=============================================================================="
 echo "Starting Residual TD3 Run: ${WANDB_NAME}"
-echo "Category    : Exp 2: OOD - Camera Pitch Down 10° - Weak Base (50 Demos) Decoupled"
+echo "Category    : Exp 2: OOD - Camera Pitch Down 7° - Weak Base (50 Demos) Unified"
 echo "Task        : ${TASK}"
 echo "Seed        : ${SEED}"
 echo "Timesteps   : ${TOTAL_TIMESTEPS}"
@@ -89,7 +89,7 @@ echo "==========================================================================
 python resfit/rl_finetuning/scripts/train_residual_td3.py \
     env_modifier.mode=camera_ood \
     env_modifier.camera_ood.camera_name="agentview" \
-    env_modifier.camera_ood.set_quat="[0.674235, 0.213088, 0.213088, 0.674235]" \
+    env_modifier.camera_ood.set_quat="[0.668426, 0.230664, 0.230664, 0.668426]" \
     env_modifier.disturbance=null \
     task="${TASK}" \
     rl_camera="['observation.images.agentview','observation.images.robot0_eye_in_hand']" \
@@ -98,7 +98,7 @@ python resfit/rl_finetuning/scripts/train_residual_td3.py \
     seed="${SEED}" \
     algo.total_timesteps="${TOTAL_TIMESTEPS}" \
     algo.reward_type="${REWARD_TYPE}" \
-    algo.e2c_mode="decoupled" \
+    algo.e2c_mode="unified" \
     algo.z_dim="${Z_DIM}" \
     algo.reward_beta="${BETA}" \
     algo.reward_alpha="${ALPHA}" \

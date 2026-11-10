@@ -1,8 +1,8 @@
 #!/bin/bash
 # ==============================================================================
-# Script     : run_square_cam_pitch_down_10deg_weak_resfit_seed52.sh
-# Category   : Exp 2: OOD - Camera Pitch Down 10° - Weak Base (50 Demos) Vanilla ResFiT
-# Title      : Camera Pitch Down 10° Weak Base Vanilla ResFiT (No PBRS)
+# Script     : run_square_cam_pitch_down_7deg_weak_resfit_seed52.sh
+# Category   : Exp 2: OOD - Camera Pitch Down 7° - Weak Base (50 Demos) Vanilla ResFiT
+# Title      : Camera Pitch Down 7° Weak Base Vanilla ResFiT (No PBRS)
 # Seed       : 52
 # ==============================================================================
 set -e
@@ -34,7 +34,7 @@ FREEZE_E2C="True"
 
 # WandB Logging
 WANDB_PROJECT="paper_square"
-WANDB_NAME="Square_cam_pitch_down_10deg_weak_50d_resfit_1000k_seed52"
+WANDB_NAME="Square_cam_pitch_down_7deg_weak_50d_resfit_1000k_seed52"
 
 # Paths
 BASE_POLICY_PATH="${PROJECT_ROOT}/resfit/my_lerobot_data/bc_run_2026-08-29_14-38-11_robomimic_square_v15_50_diffusion/policy_step_66000/policy"
@@ -67,12 +67,12 @@ export OFFLINE_CACHE_DIR="${PROJECT_ROOT}/scratch/offline_buffers"
 
 # Isolated Cache Directory
 CURRENT_TIME=$(date +"%Y%m%d_%H%M%S")
-export CACHE_DIR=${PROJECT_ROOT}/scratch/square_cam_pitch_down_10deg_weak_resfit_seed${SEED}_${CURRENT_TIME}
+export CACHE_DIR=${PROJECT_ROOT}/scratch/square_cam_pitch_down_7deg_weak_resfit_seed${SEED}_${CURRENT_TIME}
 mkdir -p "${CACHE_DIR}"
 
 echo "=============================================================================="
 echo "Starting Residual TD3 Run: ${WANDB_NAME}"
-echo "Category    : Exp 2: OOD - Camera Pitch Down 10° - Weak Base (50 Demos) Vanilla ResFiT"
+echo "Category    : Exp 2: OOD - Camera Pitch Down 7° - Weak Base (50 Demos) Vanilla ResFiT"
 echo "Task        : ${TASK}"
 echo "Seed        : ${SEED}"
 echo "Timesteps   : ${TOTAL_TIMESTEPS}"
@@ -89,7 +89,7 @@ echo "==========================================================================
 python resfit/rl_finetuning/scripts/train_residual_td3.py \
     env_modifier.mode=camera_ood \
     env_modifier.camera_ood.camera_name="agentview" \
-    env_modifier.camera_ood.set_quat="[0.674235, 0.213088, 0.213088, 0.674235]" \
+    env_modifier.camera_ood.set_quat="[0.668426, 0.230664, 0.230664, 0.668426]" \
     env_modifier.disturbance=null \
     task="${TASK}" \
     rl_camera="['observation.images.agentview','observation.images.robot0_eye_in_hand']" \
